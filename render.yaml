@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: weather-api
+    env: docker
+    dockerfilePath: docker/Dockerfile.backend
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+        description: "Direct connection string to Supabase PostgreSQL"
+      - key: SCHEDULER_SECRET
+        generateValue: true
+        description: "Secure random token for verifying scheduler HTTP cron trigger requests"
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: PORT
+        value: 8000

@@ -1,0 +1,200 @@
+import os
+import hashlib
+import logging
+from datetime import datetime, date, timedelta, timezone
+from typing import List, Optional
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from ecmwf.opendata import Client
+
+logger = logging.getLogger(__name__)
+
+class ECMWFDownloader:
+    """
+    Manages downloading GRIB forecast cycles from ECMWF Open Data.
+    Includes retry logic, checksum validation, and cycle checking.
+    """
+    
+    DEFAULT_PARAMS = ["2t", "2d", "10u", "10v", "tp", "msl", "tcc", "vis"]
+    
+    def __init__(self, storage_dir: Optional[str] = None, source: str = "ecmwf"):
+        self.storage_dir = storage_dir or os.getenv("RAW_GRIB_STORAGE_DIR", "./data/raw_grib")
+        self.source = source
+        os.makedirs(self.storage_dir, exist_ok=True)
+        # Initialize ECMWF client
+        # By default, source="ecmwf" accesses the ECMWF public open data server.
+        self.client = Client(source=self.source)
+
+    @staticmethod
+    def get_latest_cycle_info(current_time: Optional[datetime] = None) -> tuple[date, int]:
+        """
+        Calculates the latest forecast run cycle that should be available.
+        ECMWF publishes 4 cycles: 00, 06, 12, and 18 UTC.
+        Forecast cycles are usually published about 3 to 4 hours after the cycle time.
+        """
+        if current_time is None:
+            current_time = datetime.now(timezone.utc)
+            
+        # Lookback to find the latest published run
+        # ECMWF runs are 00, 06, 12, 18 UTC
+        # If it's 22:00 UTC, the 18:00 UTC run is likely ready.
+        # If it's 04:00 UTC, the 00:00 UTC run is ready.
+        # We assume a conservative delay of 4 hours.
+        target_time = current_time - timedelta(hours=4)
+        
+        cycle_hour = (target_time.hour // 6) * 6
+        cycle_date = target_time.date()
+        
+        return cycle_date, cycle_hour
+
+    def get_latest_available_cycle(self, current_time: Optional[datetime] = None) -> tuple[date, int]:
+        """
+        Scans backwards from the current estimated cycle time to find the latest
+        cycle that is actually published and available on the ECMWF server.
+        Uses a quick check retrieval to avoid full download attempts.
+        """
+        if current_time is None:
+            current_time = datetime.now(timezone.utc)
+            
+        # Start with a conservative 4-hour delay
+        target_time = current_time - timedelta(hours=4)
+        
+        # Scan back up to 4 cycles (24 hours)
+        for i in range(4):
+            cycle_hour = (target_time.hour // 6) * 6
+            cycle_date = target_time.date()
+            
+            date_str = cycle_date.strftime("%Y%m%d")
+            logger.info(f"Checking availability of ECMWF cycle: {date_str} {cycle_hour:02d}z...")
+            
+            try:
+                # Retrieve only step 240 to verify the cycle is 100% complete (10-day forecast)
+                check_target = os.path.join(self.storage_dir, ".check.grib2")
+                self.client.retrieve(
+                    date=date_str,
+                    time=cycle_hour,
+                    step=240,
+                    stream="oper",
+                    type="fc",
+                    levtype="sfc",
+                    param="2t",
+                    target=check_target
+                )
+                # Cleanup check file
+                if os.path.exists(check_target):
+                    try:
+                        os.remove(check_target)
+                    except Exception:
+                        pass
+                logger.info(f"Verified cycle is available: {date_str} {cycle_hour:02d}z")
+                return cycle_date, cycle_hour
+            except Exception as e:
+                err_msg = str(e)
+                if "404" in err_msg or "Not Found" in err_msg:
+                    logger.warning(f"Cycle {date_str} {cycle_hour:02d}z not available yet. Retrying previous cycle.")
+                    target_time -= timedelta(hours=6)
+                else:
+                    # Other connection/rate-limit issues -> log and raise
+                    logger.error(f"Unexpected error checking cycle availability: {e}")
+                    raise e
+                    
+        raise RuntimeError("No available ECMWF cycles found in the last 24 hours.")
+
+    def get_target_path(self, run_date: date, run_hour: int) -> str:
+        """
+        Generates standard file name: ecmwf_YYYYMMDD_HHutc.grib2
+        """
+        date_str = run_date.strftime("%Y%m%d")
+        filename = f"ecmwf_{date_str}_{run_hour:02d}utc.grib2"
+        return os.path.join(self.storage_dir, filename)
+
+    @staticmethod
+    def compute_sha256(file_path: str) -> str:
+        """
+        Computes SHA-256 hash of a file.
+        """
+        sha256 = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                sha256.update(chunk)
+        return sha256.hexdigest()
+
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=4, max=60),
+        retry=retry_if_exception_type(Exception),
+        reraise=True,
+        before_sleep=lambda retry_state: logger.warning(
+            f"Download attempt failed. Retrying... (Attempt {retry_state.attempt_number})"
+        )
+    )
+    def _retrieve_file(self, run_date: date, run_hour: int, target_path: str, steps: List[int]):
+        """
+        Retrieves the GRIB file from ECMWF using open data client with retries.
+        """
+        date_param = run_date.strftime("%Y%m%d")
+        
+        logger.info(
+            f"Retrieving ECMWF GRIB: date={date_param}, time={run_hour:02d}, steps={steps}, target={target_path}"
+        )
+        
+        self.client.retrieve(
+            date=date_param,
+            time=run_hour,
+            step=steps,
+            stream="oper",
+            type="fc",
+            levtype="sfc",
+            param=self.DEFAULT_PARAMS,
+            target=target_path
+        )
+
+    def download_cycle(self, run_date: date, run_hour: int, steps: Optional[List[int]] = None) -> tuple[str, str, int]:
+        """
+        Downloads a full cycle's surface GRIB file and returns (target_path, checksum, file_size).
+        If file already exists, it calculates the checksum and validates it instead of re-downloading.
+        """
+        target_path = self.get_target_path(run_date, run_hour)
+        
+        # If no steps provided, download full 10-day steps
+        # 3-hourly up to 144h, then 6-hourly up to 240h
+        if steps is None:
+            steps = list(range(0, 144, 3)) + list(range(144, 241, 6))
+
+        if os.path.exists(target_path):
+            file_size = os.path.getsize(target_path)
+            if file_size > 1024 * 1024:  # At least 1MB to verify it's not a corrupt empty file
+                logger.info(f"File {target_path} already exists. Verifying checksum...")
+                checksum = self.compute_sha256(target_path)
+                return target_path, checksum, file_size
+            else:
+                logger.warning(f"File {target_path} exists but is too small ({file_size} bytes). Re-downloading.")
+                os.remove(target_path)
+
+        # Temporary download path to avoid partial downloads
+        temp_path = target_path + ".tmp"
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+        try:
+            self._retrieve_file(run_date, run_hour, temp_path, steps)
+            
+            # Verify file was downloaded successfully
+            if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+                raise IOError("Downloaded GRIB file is empty or missing.")
+
+            # Rename temp file to target path
+            os.rename(temp_path, target_path)
+            
+            file_size = os.path.getsize(target_path)
+            checksum = self.compute_sha256(target_path)
+            logger.info(f"Successfully downloaded cycle {run_date} {run_hour:02d}:00 UTC. Checksum: {checksum}")
+            return target_path, checksum, file_size
+            
+        except Exception as e:
+            logger.error(f"Failed to download cycle {run_date} {run_hour:02d}:00 UTC: {e}")
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+            raise e

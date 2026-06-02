@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: weather_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: weatherdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d weatherdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: weather_api
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgrespassword@db:5432/weatherdb
+      - ENVIRONMENT=development
+      - PORT=8000
+      - LOG_LEVEL=INFO
+      - SUPABASE_URL=https://mock-supabase.supabase.co
+      - SUPABASE_KEY=mock-key
+    volumes:
+      - ./backend:/app/backend
+      - shared_data:/data
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: weather_worker
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: python -m backend.workers.scheduler
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgrespassword@db:5432/weatherdb
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - SUPABASE_URL=https://mock-supabase.supabase.co
+      - SUPABASE_KEY=mock-key
+    volumes:
+      - ./backend:/app/backend
+      - shared_data:/data
+
+volumes:
+  postgres_data:
+  shared_data:
