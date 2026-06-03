@@ -104,15 +104,13 @@ class GRIBParser:
 
     def extract_point_data(self, lat: float, lon: float) -> pd.DataFrame:
         """
-        Extracts raw time-series data for the nearest grid point to the given lat/lon.
+        Extracts raw time-series data using bilinear interpolation for the given lat/lon.
         Returns a Pandas DataFrame indexed by valid_time.
         """
-        # xarray nearest selection
-        # ECMWF longitudes are 0 to 360 in raw coordinates, but our API uses -180 to 180.
-        # Normalize longitude to 0 to 360 if required
-        ecmwf_lon = lon if lon >= 0 else (360 + lon)
-        
-        point_ds = self.ds.sel(latitude=lat, longitude=ecmwf_lon, method="nearest")
+        # xarray bilinear interpolation
+        # Coordinates in the ds longitude range are already mapped to -180 to 180 by cfgrib.
+        # We can directly interpolate using the query lat and lon coordinates.
+        point_ds = self.ds.interp(latitude=lat, longitude=lon, method="linear")
         
         # Convert selected point to a pandas DataFrame
         df = point_ds.to_dataframe()
