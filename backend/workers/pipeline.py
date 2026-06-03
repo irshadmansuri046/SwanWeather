@@ -45,6 +45,8 @@ class WeatherPipeline:
         stmt = select(WeatherJob).where(WeatherJob.status == "SUCCESS").order_by(WeatherJob.cycle_time.desc()).limit(1)
         job = self.db.execute(stmt).scalars().first()
         if job:
+            if job.cycle_time.tzinfo is None:
+                return job.cycle_time.replace(tzinfo=timezone.utc)
             return job.cycle_time
         return None
 
@@ -65,7 +67,7 @@ class WeatherPipeline:
         if not latest_cycle_dt:
             run_date, run_hour = self.downloader.get_latest_available_cycle()
             latest_cycle_dt = datetime.combine(run_date, datetime.min.time()) + timedelta(hours=run_hour)
-            latest_cycle_dt = latest_cycle_dt.replace(tzinfo=None) # Keep naive in DB
+            latest_cycle_dt = latest_cycle_dt.replace(tzinfo=timezone.utc)
             
         logger.info(f"Checking database for grid point ({lat_grid}, {lon_grid}) at cycle {latest_cycle_dt}")
         
@@ -128,7 +130,7 @@ class WeatherPipeline:
         # Run derived weather computations
         hourly_records = []
         for _, row in hourly_df.iterrows():
-            f_time = row["forecast_time"].to_pydatetime()
+            f_time = row["forecast_time"].to_pydatetime().replace(tzinfo=timezone.utc)
             temp = float(row["temperature"])
             dew = float(row["dew_point"])
             wind = float(row["wind_speed"])
