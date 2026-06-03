@@ -19,7 +19,8 @@ COPY backend /app/backend
 
 # Environment variables default
 ENV PYTHONPATH=/app
+ENV PATH=/root/.local/bin:$PATH
 ENV PORT=8000
 
-# Run FastAPI by default, but this container can also run workers
-CMD ["uvicorn", "backend.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run FastAPI by default (Railway will pass PORT dynamically or we bind to 8000)
+CMD ["sh", "-c", "python -m uvicorn backend.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
