@@ -1,0 +1,23 @@
+# API and Server
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.6.0
+python-dotenv>=1.0.1
+
+# Database
+SQLAlchemy>=2.0.28
+psycopg2-binary>=2.9.9
+
+# Meteorology & Ingestion
+ecmwf-opendata>=0.2.2
+cfgrib>=0.9.10.4
+xarray>=2024.2.0
+pandas>=2.2.1
+numpy>=1.26.4
+scipy>=1.12.0
+tenacity>=8.2.3
+
+# Utilities & Testing
+requests>=2.31.0
+pytest>=8.0.2
+httpx>=0.27.0
