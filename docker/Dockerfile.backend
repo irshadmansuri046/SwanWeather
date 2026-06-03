@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 # Install system dependencies for eccodes (required by cfgrib)
 RUN apt-get update && apt-get install -y \
