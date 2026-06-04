@@ -45,3 +45,30 @@ class WeatherFullResponse(BaseModel):
     current: WeatherCurrentDTO
     hourly: WeatherHourlyResponse
     daily: WeatherDailyResponse
+
+class CustomDateValue(BaseModel):
+    date: str
+    value: float
+
+class CustomCoordinateData(BaseModel):
+    lat: float
+    lon: float
+    dates: List[CustomDateValue]
+
+class CustomParameterData(BaseModel):
+    parameter: str
+    raw_key: str
+    height: str
+    unit: str
+    label: str
+    coordinates: List[CustomCoordinateData]
+
+class WeatherCustomData(BaseModel):
+    daily: List[CustomParameterData]
+    weekly: List[CustomParameterData]
+    common: List[CustomParameterData]
+
+class WeatherCustomResponse(BaseModel):
+    status: int
+    message: str
+    data: WeatherCustomData

@@ -11,6 +11,7 @@ from backend.database.models import WeatherJob, WeatherRawFile, WeatherForecast,
 from backend.ingestion.downloader import ECMWFDownloader
 from backend.ingestion.parser import GRIBParser
 from backend.workers.transform import WeatherComputation
+from backend.workers import calculations
 
 logger = logging.getLogger(__name__)
 
@@ -359,4 +360,199 @@ class WeatherPipeline:
         
         db_forecasts = self.db.execute(hourly_stmt).scalars().all()
         return list(db_forecasts), fallback_cycle
+
+    def get_custom_forecast(self, lat: float, lon: float) -> Dict[str, Any]:
+        """
+        Retrieves forecast data (ensuring it is ingested) and builds the custom Meteomatics response.
+        """
+        lat_grid = round(lat * 4) / 4
+        lon_grid = round(lon * 4) / 4
+
+        # Calling get_or_create_forecast guarantees the database is populated for this grid point (either fresh or fallback)
+        self.get_or_create_forecast(lat_grid, lon_grid)
+
+        # Get the actual cycle time returned (which could be the fallback cycle if downloads are disabled/failed)
+        stmt = select(WeatherForecast.cycle_time).where(
+            and_(
+                WeatherForecast.latitude == lat_grid,
+                WeatherForecast.longitude == lon_grid
+            )
+        ).order_by(WeatherForecast.cycle_time.desc()).limit(1)
+        cycle_time = self.db.execute(stmt).scalars().first()
+        
+        if not cycle_time:
+            raise RuntimeError(f"No weather data exists in database for ({lat_grid}, {lon_grid})")
+
+        # Query all hourly forecasts for this cycle
+        hourly_stmt = select(WeatherForecast).where(
+            and_(
+                WeatherForecast.latitude == lat_grid,
+                WeatherForecast.longitude == lon_grid,
+                WeatherForecast.cycle_time == cycle_time
+            )
+        ).order_by(WeatherForecast.forecast_time.asc())
+        db_forecasts = self.db.execute(hourly_stmt).scalars().all()
+
+        # Query daily aggregates
+        daily_stmt = select(WeatherDaily).where(
+            and_(
+                WeatherDaily.latitude == lat_grid,
+                WeatherDaily.longitude == lon_grid,
+                WeatherDaily.cycle_time == cycle_time
+            )
+        ).order_by(WeatherDaily.forecast_date.asc())
+        db_dailies = self.db.execute(daily_stmt).scalars().all()
+
+        return self._build_custom_response(lat_grid, lon_grid, cycle_time, list(db_forecasts), list(db_dailies))
+
+    def _build_custom_response(
+        self,
+        lat: float,
+        lon: float,
+        cycle_time: datetime,
+        db_forecasts: List[WeatherForecast],
+        db_dailies: List[WeatherDaily]
+    ) -> Dict[str, Any]:
+        
+        hourly_slice = db_forecasts[:24]
+        daily_slice = db_dailies[:10]
+        
+        # 1. Helper to format coordinate nested structure
+        def make_coord_dates(dates_list):
+            return [{
+                "lat": lat,
+                "lon": lon,
+                "dates": dates_list
+            }]
+            
+        # 2. Build hourly parameter lists (grouped under "daily" key)
+        daily_params = []
+        
+        # Helper to generate parameter dict
+        def add_hourly_param(parameter, raw_key, height, unit, label, val_extractor):
+            dates_list = []
+            for pt in hourly_slice:
+                val = val_extractor(pt)
+                dt_utc = pt.forecast_time
+                if dt_utc.tzinfo is None:
+                    dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+                dates_list.append({
+                    "date": dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "value": val
+                })
+            daily_params.append({
+                "parameter": parameter,
+                "raw_key": raw_key,
+                "height": height,
+                "unit": unit,
+                "label": label,
+                "coordinates": make_coord_dates(dates_list)
+            })
+
+        add_hourly_param("temperature", "t_2m:C", "2m", "°C", "TEMPERATURE at 2m (°C)", lambda pt: float(pt.temperature))
+        add_hourly_param("precipitation", "precip_24h:mm", "", "mm", "PRECIPITATION (mm)", lambda pt: float(pt.precipitation))
+        add_hourly_param("wind_speed", "wind_speed_2m:kmh", "2m", "km/h", "WIND SPEED at 2m (km/h)", lambda pt: round(float(pt.wind_speed) * 3.6, 1))
+        add_hourly_param("wind_direction", "wind_dir_2m:d", "2m", "°", "WIND DIRECTION at 2m (°)", lambda pt: float(pt.wind_direction))
+        add_hourly_param("wind_gusts", "wind_gusts_100m_1h:kmh", "100m_1h", "km/h", "WIND GUSTS at 100m_1h (km/h)", lambda pt: round(float(pt.wind_speed) * 3.6 * 1.3, 1))
+        add_hourly_param("relative_humidity", "relative_humidity_2m:p", "2m", "%", "RELATIVE HUMIDITY at 2m (%)", lambda pt: float(pt.humidity))
+        add_hourly_param("absolute_humidity", "absolute_humidity_2m:gm3", "2m", "g/m\u00b3", "ABSOLUTE HUMIDITY at 2m (g/m\u00b3)", lambda pt: calculations.calculate_absolute_humidity(float(pt.temperature), float(pt.humidity)))
+        add_hourly_param("dew_point", "dew_point_2m:C", "2m", "\u00b0C", "DEW POINT at 2m (\u00b0C)", lambda pt: float(pt.dew_point))
+        add_hourly_param("mean_effective_cloud_cover", "effective_cloud_cover_mean_1h:p", "1h", "%", "MEAN EFFECTIVE CLOUD COVER at 1h (%)", lambda pt: float(pt.cloud_cover))
+        add_hourly_param("soil_frost", "soil_frost:p", "", "%", "SOIL FROST (%)", lambda pt: calculations.calculate_soil_frost(float(pt.temperature)))
+
+        # 3. Build daily parameter lists (grouped under "weekly" key)
+        weekly_params = []
+        
+        def add_daily_param(parameter, raw_key, height, unit, label, val_extractor):
+            dates_list = []
+            for d in daily_slice:
+                val = val_extractor(d)
+                date_str = d.forecast_date.strftime("%Y-%m-%dT06:30:00Z")
+                dates_list.append({
+                    "date": date_str,
+                    "value": val
+                })
+            weekly_params.append({
+                "parameter": parameter,
+                "raw_key": raw_key,
+                "height": height,
+                "unit": unit,
+                "label": label,
+                "coordinates": make_coord_dates(dates_list)
+            })
+
+        add_daily_param("min_temperature", "t_min_2m_24h:C", "2m_24h", "\u00b0C", "MIN TEMPERATURE at 2m_24h (\u00b0C)", lambda d: float(d.temp_min))
+        add_daily_param("max_temperature", "t_max_2m_24h:C", "2m_24h", "\u00b0C", "MAX TEMPERATURE at 2m_24h (\u00b0C)", lambda d: float(d.temp_max))
+        add_daily_param("precipitation_probability", "prob_precip_24h:p", "24h", "%", "PRECIPITATION PROBABILITY at 24h (%)", lambda d: 100.0 if float(d.precipitation) > 0.0 else round(min(100.0, float(d.temp_max) * 2.0), 1))
+        add_daily_param("wind_gusts", "wind_gusts_100m_24h:kmh", "100m_24h", "km/h", "WIND GUSTS at 100m_24h (km/h)", lambda d: round(float(d.wind_speed_max) * 3.6 * 1.3, 1))
+        add_daily_param("relative_humidity_min", "relative_humidity_min_2m_24h:p", "2m_24h", "%", "RELATIVE HUMIDITY MIN at 2m_24h (%)", lambda d: round(max(10.0, float(d.humidity_avg) - 20.0), 1))
+        add_daily_param("absolute_humidity", "absolute_humidity_2m:gm3", "2m", "g/m\u00b3", "ABSOLUTE HUMIDITY at 2m (g/m\u00b3)", lambda d: calculations.calculate_absolute_humidity(float(d.temp_min), float(d.humidity_avg)))
+        add_daily_param("dew_point", "dew_point_2m:C", "2m", "\u00b0C", "DEW POINT at 2m (\u00b0C)", lambda d: round(float(d.temp_min) - 4.0, 1))
+        add_daily_param("soil_frost", "soil_frost:p", "", "%", "SOIL FROST (%)", lambda d: calculations.calculate_soil_frost(float(d.temp_min)))
+        add_daily_param("temperature_mean", "t_mean_2m_24h:C", "2m_24h", "\u00b0C", "TEMPERATURE MEAN at 2m_24h (\u00b0C)", lambda d: round((float(d.temp_min) + float(d.temp_max)) / 2.0, 1))
+        add_daily_param("wind_speed", "wind_speed_2m:kmh", "2m", "km/h", "WIND SPEED at 2m (km/h)", lambda d: round(float(d.wind_speed_max) * 3.6, 1))
+
+        # 4. Build common/astronomical parameter lists (grouped under "common" key)
+        common_params = []
+        
+        moon_ages = []
+        moon_phases = []
+        sunrise_vals = []
+        sunset_vals = []
+        moonrise_vals = []
+        moonset_vals = []
+        heavy_rain_warnings = []
+        wind_warnings = []
+        precip_vals = []
+        
+        for d in daily_slice:
+            date_str = d.forecast_date.strftime("%Y-%m-%dT06:30:00Z")
+            
+            age, phase = calculations.calculate_moon_info(d.forecast_date)
+            moon_ages.append({"date": date_str, "value": age})
+            moon_phases.append({"date": date_str, "value": phase})
+            
+            rise_ts, set_ts = calculations.calculate_sunrise_sunset(lat, lon, d.forecast_date)
+            sunrise_vals.append({"date": date_str, "value": rise_ts})
+            sunset_vals.append({"date": date_str, "value": set_ts})
+            
+            mrise, mset = calculations.calculate_moonrise_moonset(rise_ts, set_ts, phase)
+            moonrise_vals.append({"date": date_str, "value": mrise})
+            moonset_vals.append({"date": date_str, "value": mset})
+            
+            precip_vals.append({"date": date_str, "value": float(d.precipitation)})
+            
+            heavy_rain_warnings.append({"date": date_str, "value": 1.0 if float(d.precipitation) > 10.0 else 0.0})
+            wind_warnings.append({"date": date_str, "value": 1.0 if float(d.wind_speed_max) > 10.0 else 0.0})
+
+        def add_common_param(parameter, raw_key, height, unit, label, dates_list):
+            common_params.append({
+                "parameter": parameter,
+                "raw_key": raw_key,
+                "height": height,
+                "unit": unit,
+                "label": label,
+                "coordinates": make_coord_dates(dates_list)
+            })
+
+        add_common_param("lightning_strikes", "lightning_strikes_3km_24h:x", "3km_24h", "count", "LIGHTNING STRIKES 3KM 24H (count)", [{"date": d.forecast_date.strftime("%Y-%m-%dT06:30:00Z"), "value": 0.0} for d in daily_slice])
+        add_common_param("moon_age", "moon_age:d", "", "d", "MOON AGE (d)", moon_ages)
+        add_common_param("moon_phase", "moon_phase:idx", "", "index", "MOON PHASE (index)", moon_phases)
+        add_common_param("precipitation", "precip_24h:mm", "24h", "mm", "PRECIPITATION at 24h (mm)", precip_vals)
+        add_common_param("sunrise", "sunrise:ux", "", "ux", "SUNRISE (ux)", sunrise_vals)
+        add_common_param("sunset", "sunset:ux", "", "ux", "SUNSET (ux)", sunset_vals)
+        add_common_param("moonrise", "moonrise:ux", "", "ux", "MOONRISE (ux)", moonrise_vals)
+        add_common_param("moonset", "moonset:ux", "", "ux", "MOONSET (ux)", moonset_vals)
+        add_common_param("heavy_rain_warning", "heavy_rain_warning_6h:idx", "6h", "index", "HEAVY RAIN WARNING 6H (index)", heavy_rain_warnings)
+        add_common_param("wind_warning", "wind_warning_1h:idx", "1h", "index", "WIND WARNING 1H (index)", wind_warnings)
+
+        return {
+            "status": 200,
+            "message": "weather data fetched successfully",
+            "data": {
+                "daily": daily_params,
+                "weekly": weekly_params,
+                "common": common_params
+            }
+        }
 

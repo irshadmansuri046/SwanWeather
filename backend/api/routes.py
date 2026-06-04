@@ -9,7 +9,7 @@ from sqlalchemy import select, delete
 
 from backend.database.connection import get_db
 from backend.database.models import ApiCache
-from backend.api.schemas import WeatherCurrentDTO, WeatherHourlyResponse, WeatherDailyResponse, WeatherFullResponse
+from backend.api.schemas import WeatherCurrentDTO, WeatherHourlyResponse, WeatherDailyResponse, WeatherFullResponse, WeatherCustomResponse
 from backend.workers.pipeline import WeatherPipeline
 
 logger = logging.getLogger(__name__)
@@ -169,6 +169,34 @@ def get_daily_forecast(
         return daily_data
     except Exception as e:
         logger.error(f"Error handling daily weather query: {e}", exc_info=True)
+        handle_pipeline_exception(e)
+
+@router.get("/custom", response_model=WeatherCustomResponse)
+def get_custom_weather(
+    latitude: float = Query(..., ge=-90.0, le=90.0, description="Latitude of the location"),
+    longitude: float = Query(..., ge=-180.0, le=180.0, description="Longitude of the location"),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the custom Meteomatics-style weather forecast package.
+    """
+    lat_grid = round(latitude * 4) / 4
+    lon_grid = round(longitude * 4) / 4
+    
+    cache_key = f"weather_custom_{lat_grid:.2f}_{lon_grid:.2f}"
+    
+    cached = get_cached_response(db, cache_key)
+    if cached:
+        return cached
+        
+    try:
+        pipeline = WeatherPipeline(db)
+        data = pipeline.get_custom_forecast(latitude, longitude)
+        
+        set_cached_response(db, cache_key, data)
+        return data
+    except Exception as e:
+        logger.error(f"Error handling custom weather query: {e}", exc_info=True)
         handle_pipeline_exception(e)
 
 from backend.workers.scheduler import WeatherScheduler
