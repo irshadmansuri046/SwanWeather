@@ -48,6 +48,18 @@ def set_cached_response(db: Session, cache_key: str, value: Any, ttl_minutes: in
     db.add(cache_entry)
     db.commit()
 
+def handle_pipeline_exception(e: Exception):
+    err_msg = str(e)
+    if "On-the-fly downloads are disabled and no fallback data exists" in err_msg:
+        raise HTTPException(status_code=404, detail=err_msg)
+    elif "Could not download GRIB file" in err_msg or "ECMWF Client download" in err_msg or "missing locally and on-the-fly downloads" in err_msg:
+        raise HTTPException(status_code=503, detail=f"Weather service temporarily unavailable: {err_msg}")
+    elif isinstance(e, ValueError):
+        raise HTTPException(status_code=400, detail=err_msg)
+    else:
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {err_msg}")
+
+
 @router.get("/full", response_model=WeatherFullResponse)
 def get_full_weather(
     latitude: float = Query(..., ge=-90.0, le=90.0, description="Latitude of the location"),
@@ -79,7 +91,7 @@ def get_full_weather(
         return data
     except Exception as e:
         logger.error(f"Error handling full weather query: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+        handle_pipeline_exception(e)
 
 @router.get("/current", response_model=WeatherCurrentDTO)
 def get_current_weather(
@@ -105,7 +117,7 @@ def get_current_weather(
         return current_data
     except Exception as e:
         logger.error(f"Error handling current weather query: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        handle_pipeline_exception(e)
 
 @router.get("/hourly", response_model=list[WeatherHourlyDTO])
 def get_hourly_forecast(
@@ -131,7 +143,7 @@ def get_hourly_forecast(
         return hourly_data
     except Exception as e:
         logger.error(f"Error handling hourly weather query: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        handle_pipeline_exception(e)
 
 @router.get("/daily", response_model=list[WeatherDailyDTO])
 def get_daily_forecast(
@@ -157,7 +169,7 @@ def get_daily_forecast(
         return daily_data
     except Exception as e:
         logger.error(f"Error handling daily weather query: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        handle_pipeline_exception(e)
 
 from backend.workers.scheduler import WeatherScheduler
 

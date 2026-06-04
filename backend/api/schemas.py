@@ -14,7 +14,7 @@ class WeatherCurrentDTO(BaseModel):
     uv_index: float = Field(..., description="Current estimated UV index (0-15)")
     visibility: float = Field(..., description="Visibility in meters")
     weather_code: str = Field(..., description="Weather condition code (CLEAR, RAIN, etc.)")
-    valid_time: datetime = Field(..., description="Datetime of the forecast point")
+    valid_time: str = Field(..., description="Datetime of the forecast point in IST")
 
 class WeatherHourlyDTO(BaseModel):
     temperature: float
@@ -26,7 +26,7 @@ class WeatherHourlyDTO(BaseModel):
     wind_speed: float
     wind_direction: float
     weather_code: str
-    forecast_time: datetime
+    forecast_time: str
 
 class WeatherDailyDTO(BaseModel):
     forecast_date: date
@@ -40,7 +40,7 @@ class WeatherDailyDTO(BaseModel):
 class WeatherFullResponse(BaseModel):
     latitude: float
     longitude: float
-    cycle_time: datetime = Field(..., description="The ECMWF cycle run time used for this forecast")
+    cycle_time: str = Field(..., description="The ECMWF cycle run time used for this forecast in IST")
     current: WeatherCurrentDTO
     hourly: List[WeatherHourlyDTO]
     daily: List[WeatherDailyDTO]

@@ -123,9 +123,14 @@ class WeatherPipeline:
                 job.status = "SUCCESS"
                 self.db.commit()
             except Exception as e:
-                job.status = "FAILED"
-                job.error_message = str(e)
-                self.db.commit()
+                self.db.rollback()  # Rollback any failed insertion transactions to prevent transaction block corruption
+                try:
+                    job.status = "FAILED"
+                    job.error_message = str(e)
+                    self.db.commit()
+                except Exception as commit_err:
+                    logger.error(f"Failed to commit FAILED job status to DB: {commit_err}")
+                    self.db.rollback()
                 
                 # Check database for fallback cycle if download fails
                 logger.warning(f"Could not download GRIB file for cycle {latest_cycle_dt}: {e}. Looking for fallback cycle in database...")
@@ -276,7 +281,7 @@ class WeatherPipeline:
         return {
             "latitude": lat,
             "longitude": lon,
-            "cycle_time": cycle_time,
+            "cycle_time": self._format_to_ist_str(cycle_time),
             "current": {
                 "temperature": float(current_pt.temperature),
                 "feels_like": float(current_pt.feels_like),
@@ -289,7 +294,7 @@ class WeatherPipeline:
                 "uv_index": float(current_pt.uv_index),
                 "visibility": float(current_pt.visibility),
                 "weather_code": current_pt.weather_code,
-                "valid_time": current_pt.forecast_time
+                "valid_time": self._format_to_ist_str(current_pt.forecast_time)
             },
             "hourly": [
                 {
@@ -302,7 +307,7 @@ class WeatherPipeline:
                     "wind_speed": float(pt.wind_speed),
                     "wind_direction": float(pt.wind_direction),
                     "weather_code": pt.weather_code,
-                    "forecast_time": pt.forecast_time
+                    "forecast_time": self._format_to_ist_str(pt.forecast_time)
                 }
                 for pt in db_forecasts[:24]  # Return next 24 hours of hourly data
             ],
@@ -319,6 +324,15 @@ class WeatherPipeline:
                 for d in db_dailies[:10]  # Return up to 10 days
             ]
         }
+
+    @staticmethod
+    def _format_to_ist_str(dt: datetime) -> str:
+        """Converts a UTC datetime to IST and formats as '%Y-%m-%d %I:%M:%S %p'."""
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        dt_ist = dt.astimezone(ist_tz)
+        return dt_ist.strftime("%Y-%m-%d %I:%M:%S %p")
 
     def _get_latest_fallback_forecast(self, lat: float, lon: float) -> tuple[List[WeatherForecast], Optional[datetime]]:
         """
