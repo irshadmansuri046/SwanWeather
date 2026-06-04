@@ -37,6 +37,7 @@ services:
       - LOG_LEVEL=INFO
       - SUPABASE_URL=https://mock-supabase.supabase.co
       - SUPABASE_KEY=mock-key
+      - RAW_GRIB_STORAGE_DIR=/data/raw_grib
     volumes:
       - ./backend:/app/backend
       - shared_data:/data
@@ -57,6 +58,7 @@ services:
       - LOG_LEVEL=INFO
       - SUPABASE_URL=https://mock-supabase.supabase.co
       - SUPABASE_KEY=mock-key
+      - RAW_GRIB_STORAGE_DIR=/data/raw_grib
     volumes:
       - ./backend:/app/backend
       - shared_data:/data

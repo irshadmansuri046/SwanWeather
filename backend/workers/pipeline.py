@@ -93,6 +93,16 @@ class WeatherPipeline:
         target_path = self.downloader.get_target_path(latest_cycle_dt.date(), latest_cycle_dt.hour)
         
         if not os.path.exists(target_path):
+            # If direct on-the-fly downloads are disabled, check database for fallback cycle immediately
+            if not self.downloader.allow_on_the_fly_downloads:
+                logger.info("On-the-fly downloads are disabled. Looking for fallback cycle in database...")
+                db_forecasts, fallback_cycle_dt = self._get_latest_fallback_forecast(lat_grid, lon_grid)
+                if db_forecasts:
+                    return self._build_response_from_db(lat_grid, lon_grid, fallback_cycle_dt, db_forecasts)
+                raise RuntimeError(
+                    f"Weather forecast is not available. On-the-fly downloads are disabled and no fallback data exists in the database for ({lat_grid}, {lon_grid})."
+                )
+
             logger.info(f"GRIB file not found locally. Downloading cycle {latest_cycle_dt}...")
             # Register job in DB
             job = WeatherJob(cycle_time=latest_cycle_dt, status="RUNNING")
@@ -116,7 +126,14 @@ class WeatherPipeline:
                 job.status = "FAILED"
                 job.error_message = str(e)
                 self.db.commit()
-                raise RuntimeError(f"Could not download GRIB file for cycle {latest_cycle_dt}: {e}")
+                
+                # Check database for fallback cycle if download fails
+                logger.warning(f"Could not download GRIB file for cycle {latest_cycle_dt}: {e}. Looking for fallback cycle in database...")
+                db_forecasts, fallback_cycle_dt = self._get_latest_fallback_forecast(lat_grid, lon_grid)
+                if db_forecasts:
+                    return self._build_response_from_db(lat_grid, lon_grid, fallback_cycle_dt, db_forecasts)
+                    
+                raise RuntimeError(f"Could not download GRIB file for cycle {latest_cycle_dt} and no fallback data exists: {e}")
                 
         # Parse GRIB file and extract data for this coordinate
         parser = GRIBParser(target_path)
@@ -192,8 +209,11 @@ class WeatherPipeline:
         
         self.db.commit()
         
+        # Re-query the database to get the exact records stored (to match rounding, constraints, and defaults)
+        db_forecasts = self.db.execute(hourly_stmt).scalars().all()
+        
         # Return response
-        return self._build_response_from_db(lat_grid, lon_grid, latest_cycle_dt, db_hourly_objs)
+        return self._build_response_from_db(lat_grid, lon_grid, latest_cycle_dt, db_forecasts)
 
     def _generate_daily_summaries(self, hourly_records: List[Dict[str, Any]], lat: float, lon: float, cycle_time: datetime) -> List[Dict[str, Any]]:
         """
@@ -299,3 +319,32 @@ class WeatherPipeline:
                 for d in db_dailies[:10]  # Return up to 10 days
             ]
         }
+
+    def _get_latest_fallback_forecast(self, lat: float, lon: float) -> tuple[List[WeatherForecast], Optional[datetime]]:
+        """
+        Retrieves the latest available forecast cycle in the database for a coordinate.
+        """
+        # Find the latest cycle time for this coordinate in the database
+        stmt = select(WeatherForecast.cycle_time).where(
+            and_(
+                WeatherForecast.latitude == lat,
+                WeatherForecast.longitude == lon
+            )
+        ).order_by(WeatherForecast.cycle_time.desc()).limit(1)
+        
+        fallback_cycle = self.db.execute(stmt).scalars().first()
+        if not fallback_cycle:
+            return [], None
+            
+        # Get all forecasts for that cycle
+        hourly_stmt = select(WeatherForecast).where(
+            and_(
+                WeatherForecast.latitude == lat,
+                WeatherForecast.longitude == lon,
+                WeatherForecast.cycle_time == fallback_cycle
+            )
+        ).order_by(WeatherForecast.forecast_time.asc())
+        
+        db_forecasts = self.db.execute(hourly_stmt).scalars().all()
+        return list(db_forecasts), fallback_cycle
+
