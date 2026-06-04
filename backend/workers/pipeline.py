@@ -93,7 +93,8 @@ class WeatherPipeline:
         # Ensure we have the latest GRIB file
         target_path = self.downloader.get_target_path(latest_cycle_dt.date(), latest_cycle_dt.hour)
         
-        if not os.path.exists(target_path):
+        if not os.path.exists(target_path) or not self.downloader.use_local_storage:
+            logger.info("Downloading GRIB file (either missing locally or cloud‑only mode).")
             # If direct on-the-fly downloads are disabled, check database for fallback cycle immediately
             if not self.downloader.allow_on_the_fly_downloads and self.downloader.use_local_storage:
                 logger.info("On-the-fly downloads are disabled and local storage is in use. Looking for fallback cycle in database...")

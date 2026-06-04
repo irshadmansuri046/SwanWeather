@@ -271,8 +271,10 @@ class ECMWFDownloader:
             
             # Upload to Supabase Storage if local storage is not enabled
             if not self.use_local_storage:
-                self._upload_to_supabase(target_path, filename)
-                
+                if not self._upload_to_supabase(target_path, filename):
+                    logger.warning(f"Failed to upload {filename} to Supabase after download.")
+                else:
+                    logger.info(f"Uploaded {filename} to Supabase successfully.")
             return target_path, checksum, file_size
             
         except Exception as e:
