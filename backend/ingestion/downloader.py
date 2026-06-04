@@ -5,6 +5,7 @@ from datetime import datetime, date, timedelta, timezone
 from typing import List, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from ecmwf.opendata import Client
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +17,78 @@ class ECMWFDownloader:
     
     DEFAULT_PARAMS = ["2t", "2d", "10u", "10v", "tp", "msl", "tcc", "vis"]
     
-    def __init__(self, storage_dir: Optional[str] = None, source: str = "ecmwf"):
+    def __init__(self, storage_dir: Optional[str] = None, source: Optional[str] = None):
         self.storage_dir = storage_dir or os.getenv("RAW_GRIB_STORAGE_DIR", "./data/raw_grib")
-        self.source = source
+        self.source = source or os.getenv("ECMWF_DATA_SOURCE", "aws")
         os.makedirs(self.storage_dir, exist_ok=True)
+        
+        # Initialize Supabase REST Storage Client details
+        self.supabase_url = os.getenv("SUPABASE_URL")
+        self.supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+        self.use_local_storage = os.getenv("USE_LOCAL_STORAGE", "true").lower() == "true"
+        self.allow_on_the_fly_downloads = os.getenv("ALLOW_ON_THE_FLY_DOWNLOADS", "true").lower() == "true"
+        
         # Initialize ECMWF client
-        # By default, source="ecmwf" accesses the ECMWF public open data server.
+        # By default, source="aws" accesses the AWS public mirror to avoid connection rate limits.
         self.client = Client(source=self.source)
+
+    def _upload_to_supabase(self, file_path: str, filename: str) -> bool:
+        """Uploads a local GRIB file to the Supabase Storage bucket."""
+        if not self.supabase_url or not self.supabase_key:
+            logger.warning("Supabase URL or Key not set. Skipping GRIB upload.")
+            return False
+            
+        url = f"{self.supabase_url.rstrip('/')}/storage/v1/object/grib-files/{filename}"
+        headers = {
+            "Authorization": f"Bearer {self.supabase_key}",
+            "Content-Type": "application/octet-stream"
+        }
+        
+        try:
+            logger.info(f"Uploading GRIB {filename} to Supabase Storage...")
+            with open(file_path, "rb") as f:
+                response = requests.post(url, headers=headers, data=f, timeout=120)
+                
+            if response.status_code in [200, 201]:
+                logger.info(f"Successfully uploaded {filename} to Supabase Storage.")
+                return True
+            else:
+                logger.error(f"Failed to upload GRIB to Supabase. HTTP {response.status_code}: {response.text}")
+                return False
+        except Exception as e:
+            logger.error(f"Error uploading GRIB to Supabase: {e}")
+            return False
+
+    def _download_from_supabase(self, filename: str, target_path: str) -> bool:
+        """Downloads a GRIB file from the Supabase Storage bucket."""
+        if not self.supabase_url or not self.supabase_key:
+            logger.warning("Supabase URL or Key not set. Skipping GRIB download.")
+            return False
+            
+        url = f"{self.supabase_url.rstrip('/')}/storage/v1/object/authenticated/grib-files/{filename}"
+        headers = {
+            "Authorization": f"Bearer {self.supabase_key}"
+        }
+        
+        try:
+            logger.info(f"Attempting to download GRIB {filename} from Supabase Storage...")
+            response = requests.get(url, headers=headers, stream=True, timeout=120)
+            
+            if response.status_code == 200:
+                temp_path = target_path + ".tmp"
+                with open(temp_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                os.rename(temp_path, target_path)
+                logger.info(f"Successfully downloaded GRIB {filename} from Supabase Storage.")
+                return True
+            else:
+                logger.warning(f"GRIB {filename} not found in Supabase Storage. HTTP {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"Error downloading GRIB from Supabase: {e}")
+            return False
 
     @staticmethod
     def get_latest_cycle_info(current_time: Optional[datetime] = None) -> tuple[date, int]:
@@ -170,6 +236,21 @@ class ECMWFDownloader:
                 logger.warning(f"File {target_path} exists but is too small ({file_size} bytes). Re-downloading.")
                 os.remove(target_path)
 
+        # Supabase Storage Integration
+        filename = os.path.basename(target_path)
+        if not self.use_local_storage:
+            if self._download_from_supabase(filename, target_path):
+                file_size = os.path.getsize(target_path)
+                checksum = self.compute_sha256(target_path)
+                return target_path, checksum, file_size
+            logger.info("File not found in Supabase Storage. Falling back to ECMWF Client download.")
+
+        # Prevent on-the-fly downloads from ECMWF if configured
+        if not self.allow_on_the_fly_downloads:
+            raise RuntimeError(
+                f"GRIB file {filename} is missing locally and on-the-fly downloads from ECMWF are disabled on this instance."
+            )
+
         # Temporary download path to avoid partial downloads
         temp_path = target_path + ".tmp"
         if os.path.exists(temp_path):
@@ -188,6 +269,11 @@ class ECMWFDownloader:
             file_size = os.path.getsize(target_path)
             checksum = self.compute_sha256(target_path)
             logger.info(f"Successfully downloaded cycle {run_date} {run_hour:02d}:00 UTC. Checksum: {checksum}")
+            
+            # Upload to Supabase Storage if local storage is not enabled
+            if not self.use_local_storage:
+                self._upload_to_supabase(target_path, filename)
+                
             return target_path, checksum, file_size
             
         except Exception as e:
