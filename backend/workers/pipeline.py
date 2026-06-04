@@ -293,6 +293,7 @@ class WeatherPipeline:
                 "dew_point": float(current_pt.dew_point),
                 "uv_index": float(current_pt.uv_index),
                 "visibility": float(current_pt.visibility),
+                "precipitation": float(current_pt.precipitation),
                 "weather_code": current_pt.weather_code,
                 "valid_time": self._format_to_ist_str(current_pt.forecast_time)
             },

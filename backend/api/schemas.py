@@ -13,6 +13,7 @@ class WeatherCurrentDTO(BaseModel):
     dew_point: float = Field(..., description="Dew point temperature in Celsius")
     uv_index: float = Field(..., description="Current estimated UV index (0-15)")
     visibility: float = Field(..., description="Visibility in meters")
+    precipitation: float = Field(..., description="Precipitation in mm for this hour")
     weather_code: str = Field(..., description="Weather condition code (CLEAR, RAIN, etc.)")
     valid_time: str = Field(..., description="Datetime of the forecast point in IST")
 

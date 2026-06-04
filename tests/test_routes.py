@@ -22,6 +22,7 @@ MOCK_WEATHER_RESPONSE = {
         "dew_point": 24.0,
         "uv_index": 8.0,
         "visibility": 10000.0,
+        "precipitation": 0.5,
         "weather_code": "RAIN",
         "valid_time": "2026-06-02 08:30:00 PM"
     },
