@@ -95,8 +95,8 @@ class WeatherPipeline:
         
         if not os.path.exists(target_path):
             # If direct on-the-fly downloads are disabled, check database for fallback cycle immediately
-            if not self.downloader.allow_on_the_fly_downloads:
-                logger.info("On-the-fly downloads are disabled. Looking for fallback cycle in database...")
+            if not self.downloader.allow_on_the_fly_downloads and self.downloader.use_local_storage:
+                logger.info("On-the-fly downloads are disabled and local storage is in use. Looking for fallback cycle in database...")
                 db_forecasts, fallback_cycle_dt = self._get_latest_fallback_forecast(lat_grid, lon_grid)
                 if db_forecasts:
                     return self._build_response_from_db(lat_grid, lon_grid, fallback_cycle_dt, db_forecasts)
