@@ -1,47 +1,47 @@
 from pydantic import BaseModel, Field
-from datetime import datetime, date
-from typing import List, Optional
+from datetime import date
+from typing import List
 
 class WeatherCurrentDTO(BaseModel):
-    temperature: float = Field(..., description="Current temperature in Celsius")
-    feels_like: float = Field(..., description="Feels like temperature in Celsius")
-    humidity: float = Field(..., description="Relative humidity in percentage")
-    pressure: float = Field(..., description="Atmospheric pressure in hPa")
+    time: str = Field(..., description="Datetime of the forecast point in IST")
+    temperature_2m: float = Field(..., description="Current temperature in Celsius")
+    apparent_temperature: float = Field(..., description="Feels like temperature in Celsius")
+    relative_humidity_2m: float = Field(..., description="Relative humidity in percentage")
+    surface_pressure: float = Field(..., description="Atmospheric pressure in hPa")
     cloud_cover: float = Field(..., description="Cloud cover in percentage")
-    wind_speed: float = Field(..., description="Wind speed in m/s")
-    wind_direction: float = Field(..., description="Wind direction in degrees")
-    dew_point: float = Field(..., description="Dew point temperature in Celsius")
+    wind_speed_10m: float = Field(..., description="Wind speed in m/s")
+    wind_direction_10m: float = Field(..., description="Wind direction in degrees")
+    dew_point_2m: float = Field(..., description="Dew point temperature in Celsius")
     uv_index: float = Field(..., description="Current estimated UV index (0-15)")
     visibility: float = Field(..., description="Visibility in meters")
     precipitation: float = Field(..., description="Precipitation in mm for this hour")
     weather_code: str = Field(..., description="Weather condition code (CLEAR, RAIN, etc.)")
-    valid_time: str = Field(..., description="Datetime of the forecast point in IST")
 
-class WeatherHourlyDTO(BaseModel):
-    temperature: float
-    feels_like: float
-    precipitation: float = Field(..., description="Precipitation in mm for this hour")
-    humidity: float
-    pressure: float
-    cloud_cover: float
-    wind_speed: float
-    wind_direction: float
-    weather_code: str
-    forecast_time: str
+class WeatherHourlyResponse(BaseModel):
+    time: List[str] = Field(..., description="Array of ISO 8601 / IST timestamps")
+    temperature_2m: List[float] = Field(..., description="Array of temperatures at 2m")
+    apparent_temperature: List[float] = Field(..., description="Array of apparent temperatures")
+    precipitation: List[float] = Field(..., description="Array of precipitation in mm")
+    relative_humidity_2m: List[float] = Field(..., description="Array of relative humidity percentages")
+    surface_pressure: List[float] = Field(..., description="Array of surface pressures in hPa")
+    cloud_cover: List[float] = Field(..., description="Array of cloud covers in percentage")
+    wind_speed_10m: List[float] = Field(..., description="Array of wind speeds at 10m in m/s")
+    wind_direction_10m: List[float] = Field(..., description="Array of wind directions at 10m in degrees")
+    weather_code: List[str] = Field(..., description="Array of weather condition codes")
 
-class WeatherDailyDTO(BaseModel):
-    forecast_date: date
-    temp_min: float = Field(..., description="Minimum temperature in Celsius")
-    temp_max: float = Field(..., description="Maximum temperature in Celsius")
-    precipitation: float = Field(..., description="Total accumulated precipitation for the day in mm")
-    humidity_avg: float = Field(..., description="Average humidity for the day in percentage")
-    wind_speed_max: float = Field(..., description="Maximum wind speed for the day in m/s")
-    weather_code: str = Field(..., description="Dominant weather condition code for the day")
+class WeatherDailyResponse(BaseModel):
+    time: List[date] = Field(..., description="Array of dates")
+    temperature_2m_max: List[float] = Field(..., description="Array of daily max temperatures")
+    temperature_2m_min: List[float] = Field(..., description="Array of daily min temperatures")
+    precipitation_sum: List[float] = Field(..., description="Array of total daily precipitation sums")
+    humidity_avg: List[float] = Field(..., description="Array of average daily humidity percentages")
+    wind_speed_10m_max: List[float] = Field(..., description="Array of maximum daily wind speeds")
+    weather_code: List[str] = Field(..., description="Array of daily dominant weather codes")
 
 class WeatherFullResponse(BaseModel):
     latitude: float
     longitude: float
     cycle_time: str = Field(..., description="The ECMWF cycle run time used for this forecast in IST")
     current: WeatherCurrentDTO
-    hourly: List[WeatherHourlyDTO]
-    daily: List[WeatherDailyDTO]
+    hourly: WeatherHourlyResponse
+    daily: WeatherDailyResponse

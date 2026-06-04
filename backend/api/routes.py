@@ -9,7 +9,7 @@ from sqlalchemy import select, delete
 
 from backend.database.connection import get_db
 from backend.database.models import ApiCache
-from backend.api.schemas import WeatherCurrentDTO, WeatherHourlyDTO, WeatherDailyDTO, WeatherFullResponse
+from backend.api.schemas import WeatherCurrentDTO, WeatherHourlyResponse, WeatherDailyResponse, WeatherFullResponse
 from backend.workers.pipeline import WeatherPipeline
 
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ def get_current_weather(
         logger.error(f"Error handling current weather query: {e}", exc_info=True)
         handle_pipeline_exception(e)
 
-@router.get("/hourly", response_model=list[WeatherHourlyDTO])
+@router.get("/hourly", response_model=WeatherHourlyResponse)
 def get_hourly_forecast(
     latitude: float = Query(..., ge=-90.0, le=90.0),
     longitude: float = Query(..., ge=-180.0, le=180.0),
@@ -145,7 +145,7 @@ def get_hourly_forecast(
         logger.error(f"Error handling hourly weather query: {e}", exc_info=True)
         handle_pipeline_exception(e)
 
-@router.get("/daily", response_model=list[WeatherDailyDTO])
+@router.get("/daily", response_model=WeatherDailyResponse)
 def get_daily_forecast(
     latitude: float = Query(..., ge=-90.0, le=90.0),
     longitude: float = Query(..., ge=-180.0, le=180.0),

@@ -80,7 +80,7 @@ def test_pipeline_cache_hit(db_session, mock_ecmwf_client):
     assert result["latitude"] == lat
     assert result["longitude"] == lon
     assert result["cycle_time"] == WeatherPipeline._format_to_ist_str(cycle_dt)
-    assert result["current"]["temperature"] == 25.0
+    assert result["current"]["temperature_2m"] == 25.0
     assert result["current"]["weather_code"] == "CLEAR"
 
 @pytest.mark.usefixtures("db_session", "mock_ecmwf_client")
@@ -107,7 +107,7 @@ def test_pipeline_cache_miss_with_local_grib(db_session, mock_ecmwf_client):
     assert result["latitude"] == lat
     assert result["longitude"] == lon
     assert result["cycle_time"] == WeatherPipeline._format_to_ist_str(cycle_dt)
-    assert result["current"]["temperature"] == 15.0
+    assert result["current"]["temperature_2m"] == 15.0
     
     # Verify that records were written to database
     db_records = db_session.query(WeatherForecast).filter(
@@ -159,7 +159,7 @@ def test_pipeline_cache_miss_downloads_disabled_with_fallback(db_session, mock_e
     result = pipeline.get_or_create_forecast(lat, lon)
     
     assert result["cycle_time"] == WeatherPipeline._format_to_ist_str(older_cycle_dt)
-    assert result["current"]["temperature"] == 22.0
+    assert result["current"]["temperature_2m"] == 22.0
 
 @pytest.mark.usefixtures("db_session", "mock_ecmwf_client")
 def test_pipeline_cache_miss_downloads_disabled_no_fallback(db_session, mock_ecmwf_client, monkeypatch):

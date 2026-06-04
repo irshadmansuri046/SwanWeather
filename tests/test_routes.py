@@ -12,45 +12,41 @@ MOCK_WEATHER_RESPONSE = {
     "longitude": 73.0,
     "cycle_time": "2026-06-02 05:30:00 PM",
     "current": {
-        "temperature": 28.5,
-        "feels_like": 33.2,
-        "humidity": 78.0,
-        "pressure": 1008.0,
+        "time": "2026-06-02 08:30:00 PM",
+        "temperature_2m": 28.5,
+        "apparent_temperature": 33.2,
+        "relative_humidity_2m": 78.0,
+        "surface_pressure": 1008.0,
         "cloud_cover": 50.0,
-        "wind_speed": 4.5,
-        "wind_direction": 220.0,
-        "dew_point": 24.0,
+        "wind_speed_10m": 4.5,
+        "wind_direction_10m": 220.0,
+        "dew_point_2m": 24.0,
         "uv_index": 8.0,
         "visibility": 10000.0,
         "precipitation": 0.5,
-        "weather_code": "RAIN",
-        "valid_time": "2026-06-02 08:30:00 PM"
+        "weather_code": "RAIN"
     },
-    "hourly": [
-        {
-            "temperature": 28.5,
-            "feels_like": 33.2,
-            "precipitation": 0.5,
-            "humidity": 78.0,
-            "pressure": 1008.0,
-            "cloud_cover": 50.0,
-            "wind_speed": 4.5,
-            "wind_direction": 220.0,
-            "weather_code": "RAIN",
-            "forecast_time": "2026-06-02 08:30:00 PM"
-        }
-    ],
-    "daily": [
-        {
-            "forecast_date": "2026-06-02",
-            "temp_min": 25.0,
-            "temp_max": 30.0,
-            "precipitation": 5.0,
-            "humidity_avg": 78.0,
-            "wind_speed_max": 6.0,
-            "weather_code": "RAIN"
-        }
-    ]
+    "hourly": {
+        "time": ["2026-06-02 08:30:00 PM"],
+        "temperature_2m": [28.5],
+        "apparent_temperature": [33.2],
+        "precipitation": [0.5],
+        "relative_humidity_2m": [78.0],
+        "surface_pressure": [1008.0],
+        "cloud_cover": [50.0],
+        "wind_speed_10m": [4.5],
+        "wind_direction_10m": [220.0],
+        "weather_code": ["RAIN"]
+    },
+    "daily": {
+        "time": ["2026-06-02"],
+        "temperature_2m_max": [30.0],
+        "temperature_2m_min": [25.0],
+        "precipitation_sum": [5.0],
+        "humidity_avg": [78.0],
+        "wind_speed_10m_max": [6.0],
+        "weather_code": ["RAIN"]
+    }
 }
 
 @pytest.fixture
@@ -79,8 +75,8 @@ def test_get_full_weather(mock_pipeline_class, override_db):
     json_data = response.json()
     assert json_data["latitude"] == 19.0
     assert json_data["current"]["weather_code"] == "RAIN"
-    assert len(json_data["hourly"]) == 1
-    assert len(json_data["daily"]) == 1
+    assert len(json_data["hourly"]["time"]) == 1
+    assert len(json_data["daily"]["time"]) == 1
 
 @patch("backend.api.routes.WeatherPipeline")
 def test_get_current_weather(mock_pipeline_class, override_db):
@@ -92,7 +88,7 @@ def test_get_current_weather(mock_pipeline_class, override_db):
     
     assert response.status_code == 200
     json_data = response.json()
-    assert json_data["temperature"] == 28.5
+    assert json_data["temperature_2m"] == 28.5
     assert json_data["weather_code"] == "RAIN"
 
 @patch("backend.api.routes.WeatherPipeline")
@@ -105,7 +101,7 @@ def test_get_hourly_weather(mock_pipeline_class, override_db):
     
     assert response.status_code == 200
     json_data = response.json()
-    assert json_data[0]["temperature"] == 28.5
+    assert json_data["temperature_2m"][0] == 28.5
 
 @patch("backend.api.routes.WeatherPipeline")
 def test_get_daily_weather(mock_pipeline_class, override_db):
@@ -117,7 +113,7 @@ def test_get_daily_weather(mock_pipeline_class, override_db):
     
     assert response.status_code == 200
     json_data = response.json()
-    assert json_data[0]["temp_max"] == 30.0
+    assert json_data["temperature_2m_max"][0] == 30.0
 
 @patch("backend.api.routes.WeatherPipeline")
 def test_route_fallback_error_handling(mock_pipeline_class, override_db):

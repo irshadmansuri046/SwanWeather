@@ -278,52 +278,49 @@ class WeatherPipeline:
         else:
             current_pt = db_forecasts[0]
             
+        hourly_slice = db_forecasts[:24]  # Return next 24 hours of hourly data
+        daily_slice = db_dailies[:10]      # Return up to 10 days
+        
         return {
             "latitude": lat,
             "longitude": lon,
             "cycle_time": self._format_to_ist_str(cycle_time),
             "current": {
-                "temperature": float(current_pt.temperature),
-                "feels_like": float(current_pt.feels_like),
-                "humidity": float(current_pt.humidity),
-                "pressure": float(current_pt.pressure),
+                "time": self._format_to_ist_str(current_pt.forecast_time),
+                "temperature_2m": float(current_pt.temperature),
+                "apparent_temperature": float(current_pt.feels_like),
+                "relative_humidity_2m": float(current_pt.humidity),
+                "surface_pressure": float(current_pt.pressure),
                 "cloud_cover": float(current_pt.cloud_cover),
-                "wind_speed": float(current_pt.wind_speed),
-                "wind_direction": float(current_pt.wind_direction),
-                "dew_point": float(current_pt.dew_point),
+                "wind_speed_10m": float(current_pt.wind_speed),
+                "wind_direction_10m": float(current_pt.wind_direction),
+                "dew_point_2m": float(current_pt.dew_point),
                 "uv_index": float(current_pt.uv_index),
                 "visibility": float(current_pt.visibility),
                 "precipitation": float(current_pt.precipitation),
                 "weather_code": current_pt.weather_code,
-                "valid_time": self._format_to_ist_str(current_pt.forecast_time)
             },
-            "hourly": [
-                {
-                    "temperature": float(pt.temperature),
-                    "feels_like": float(pt.feels_like),
-                    "precipitation": float(pt.precipitation),
-                    "humidity": float(pt.humidity),
-                    "pressure": float(pt.pressure),
-                    "cloud_cover": float(pt.cloud_cover),
-                    "wind_speed": float(pt.wind_speed),
-                    "wind_direction": float(pt.wind_direction),
-                    "weather_code": pt.weather_code,
-                    "forecast_time": self._format_to_ist_str(pt.forecast_time)
-                }
-                for pt in db_forecasts[:24]  # Return next 24 hours of hourly data
-            ],
-            "daily": [
-                {
-                    "forecast_date": d.forecast_date,
-                    "temp_min": float(d.temp_min),
-                    "temp_max": float(d.temp_max),
-                    "precipitation": float(d.precipitation),
-                    "humidity_avg": float(d.humidity_avg),
-                    "wind_speed_max": float(d.wind_speed_max),
-                    "weather_code": d.weather_code
-                }
-                for d in db_dailies[:10]  # Return up to 10 days
-            ]
+            "hourly": {
+                "time": [self._format_to_ist_str(pt.forecast_time) for pt in hourly_slice],
+                "temperature_2m": [float(pt.temperature) for pt in hourly_slice],
+                "apparent_temperature": [float(pt.feels_like) for pt in hourly_slice],
+                "precipitation": [float(pt.precipitation) for pt in hourly_slice],
+                "relative_humidity_2m": [float(pt.humidity) for pt in hourly_slice],
+                "surface_pressure": [float(pt.pressure) for pt in hourly_slice],
+                "cloud_cover": [float(pt.cloud_cover) for pt in hourly_slice],
+                "wind_speed_10m": [float(pt.wind_speed) for pt in hourly_slice],
+                "wind_direction_10m": [float(pt.wind_direction) for pt in hourly_slice],
+                "weather_code": [pt.weather_code for pt in hourly_slice],
+            },
+            "daily": {
+                "time": [d.forecast_date for d in daily_slice],
+                "temperature_2m_max": [float(d.temp_max) for d in daily_slice],
+                "temperature_2m_min": [float(d.temp_min) for d in daily_slice],
+                "precipitation_sum": [float(d.precipitation) for d in daily_slice],
+                "humidity_avg": [float(d.humidity_avg) for d in daily_slice],
+                "wind_speed_10m_max": [float(d.wind_speed_max) for d in daily_slice],
+                "weather_code": [d.weather_code for d in daily_slice],
+            }
         }
 
     @staticmethod
