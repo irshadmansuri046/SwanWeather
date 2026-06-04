@@ -245,13 +245,12 @@ class ECMWFDownloader:
                 return target_path, checksum, file_size
             logger.info("File not found in Supabase Storage. Falling back to ECMWF Client download.")
 
-        # Prevent on-the-fly downloads from ECMWF if configured
-        if not self.allow_on_the_fly_downloads:
+        # Prevent on-the-fly downloads if disabled and using local storage
+        if not self.allow_on_the_fly_downloads and self.use_local_storage:
             raise RuntimeError(
                 f"GRIB file {filename} is missing locally and on-the-fly downloads from ECMWF are disabled on this instance."
             )
-
-        # Temporary download path to avoid partial downloads
+        
         temp_path = target_path + ".tmp"
         if os.path.exists(temp_path):
             os.remove(temp_path)
