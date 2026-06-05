@@ -23,8 +23,17 @@ class ECMWFDownloader:
         os.makedirs(self.storage_dir, exist_ok=True)
         
         # Initialize Supabase REST Storage Client details
-        self.supabase_url = os.getenv("SUPABASE_URL")
-        self.supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+        supabase_url = os.getenv("SUPABASE_URL")
+        if supabase_url and "/rest/v1" in supabase_url:
+            supabase_url = supabase_url.split("/rest/v1")[0]
+        self.supabase_url = supabase_url
+        
+        service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        if service_key and service_key not in ["mock-service-key", "your-supabase-service-role-key"]:
+            self.supabase_key = service_key
+        else:
+            self.supabase_key = os.getenv("SUPABASE_KEY")
+            
         self.use_local_storage = os.getenv("USE_LOCAL_STORAGE", "true").lower() == "true"
         self.allow_on_the_fly_downloads = os.getenv("ALLOW_ON_THE_FLY_DOWNLOADS", "true").lower() == "true"
         
