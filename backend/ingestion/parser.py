@@ -26,7 +26,7 @@ class GRIBParser:
         "vis": "visibility"
     }
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, crop_bbox: Optional[Dict[str, Any]] = None):
         self.file_path = file_path
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"GRIB file not found: {file_path}")
@@ -39,39 +39,51 @@ class GRIBParser:
             self.ds = xr.open_dataset(file_path)
             return
             
+        def load_and_crop(filter_keys):
+            ds = xr.open_dataset(file_path, engine="cfgrib", backend_kwargs={"filter_by_keys": filter_keys})
+            if crop_bbox:
+                # Determine latitude direction (GRIB can be descending or ascending)
+                is_lat_descending = float(ds.latitude[0]) > float(ds.latitude[-1])
+                lats = crop_bbox["latitude"]
+                lons = crop_bbox["longitude"]
+                lat_slice = slice(lats[1], lats[0]) if is_lat_descending else slice(lats[0], lats[1])
+                lon_slice = slice(lons[0], lons[1])
+                ds = ds.sel(latitude=lat_slice, longitude=lon_slice)
+            return ds
+
         # Open dataset levels with cfgrib engine
         
         # 1. Temperature & Dew Point (heightAboveGround, level 2)
         try:
-            ds_2m = xr.open_dataset(file_path, engine="cfgrib", backend_kwargs={"filter_by_keys": {"typeOfLevel": "heightAboveGround", "level": 2}})
+            ds_2m = load_and_crop({"typeOfLevel": "heightAboveGround", "level": 2})
             self._datasets.append(ds_2m)
         except Exception as e:
             logger.warning(f"Could not open 2m heightAboveGround variables (t2m, d2m): {e}")
 
         # 2. Wind U & V (heightAboveGround, level 10)
         try:
-            ds_10m = xr.open_dataset(file_path, engine="cfgrib", backend_kwargs={"filter_by_keys": {"typeOfLevel": "heightAboveGround", "level": 10}})
+            ds_10m = load_and_crop({"typeOfLevel": "heightAboveGround", "level": 10})
             self._datasets.append(ds_10m)
         except Exception as e:
             logger.warning(f"Could not open 10m heightAboveGround variables (u10, v10): {e}")
 
         # 3. Total Precipitation (surface)
         try:
-            ds_sfc = xr.open_dataset(file_path, engine="cfgrib", backend_kwargs={"filter_by_keys": {"typeOfLevel": "surface"}})
+            ds_sfc = load_and_crop({"typeOfLevel": "surface"})
             self._datasets.append(ds_sfc)
         except Exception as e:
             logger.warning(f"Could not open surface variables (tp): {e}")
 
         # 4. Mean Sea Level Pressure (meanSea)
         try:
-            ds_msl = xr.open_dataset(file_path, engine="cfgrib", backend_kwargs={"filter_by_keys": {"typeOfLevel": "meanSea"}})
+            ds_msl = load_and_crop({"typeOfLevel": "meanSea"})
             self._datasets.append(ds_msl)
         except Exception as e:
             logger.warning(f"Could not open meanSea variables (msl): {e}")
 
         # 5. Total Cloud Cover (entireAtmosphere)
         try:
-            ds_atm = xr.open_dataset(file_path, engine="cfgrib", backend_kwargs={"filter_by_keys": {"typeOfLevel": "entireAtmosphere"}})
+            ds_atm = load_and_crop({"typeOfLevel": "entireAtmosphere"})
             self._datasets.append(ds_atm)
         except Exception as e:
             logger.warning(f"Could not open entireAtmosphere variables (tcc): {e}")
@@ -334,16 +346,9 @@ class GRIBParser:
         and saves it as a NetCDF file.
         """
         logger.info(f"Cropping GRIB {grib_path} to lat={lat_range}, lon={lon_range}...")
-        parser = cls(grib_path)
+        parser = cls(grib_path, crop_bbox={"latitude": lat_range, "longitude": lon_range})
         try:
-            ds = parser.ds
-            
-            # Determine latitude direction (GRIB can be descending or ascending)
-            is_lat_descending = float(ds.latitude[0]) > float(ds.latitude[-1])
-            lat_slice = slice(lat_range[1], lat_range[0]) if is_lat_descending else slice(lat_range[0], lat_range[1])
-            lon_slice = slice(lon_range[0], lon_range[1])
-            
-            cropped_ds = ds.sel(latitude=lat_slice, longitude=lon_slice)
+            cropped_ds = parser.ds
             
             # Save using scipy engine (which is native and requires no extra C libraries)
             cropped_ds.to_netcdf(netcdf_path, engine="scipy")
