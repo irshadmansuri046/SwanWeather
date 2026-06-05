@@ -19,7 +19,7 @@ class ECMWFDownloader:
     
     def __init__(self, storage_dir: Optional[str] = None, source: Optional[str] = None):
         self.storage_dir = storage_dir or os.getenv("RAW_GRIB_STORAGE_DIR", "./data/raw_grib")
-        self.source = source or os.getenv("ECMWF_DATA_SOURCE", "aws")
+        self.source = source or os.getenv("ECMWF_DATA_SOURCE", "azure")
         os.makedirs(self.storage_dir, exist_ok=True)
         
         # Initialize Supabase REST Storage Client details
@@ -29,7 +29,7 @@ class ECMWFDownloader:
         self.allow_on_the_fly_downloads = os.getenv("ALLOW_ON_THE_FLY_DOWNLOADS", "true").lower() == "true"
         
         # Initialize ECMWF client
-        # By default, source="aws" accesses the AWS public mirror to avoid connection rate limits.
+        # By default, source="azure" accesses the Azure public mirror to avoid connection rate limits.
         self.client = Client(source=self.source)
 
     def _upload_to_supabase(self, file_path: str, filename: str) -> bool:
