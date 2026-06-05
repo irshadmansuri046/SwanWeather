@@ -342,19 +342,72 @@ class GRIBParser:
         lon_range: tuple[float, float] = (68.0, 98.0)
     ) -> None:
         """
-        Parses a global GRIB file, crops it to the specified bounding box (e.g. India),
-        and saves it as a NetCDF file.
+        Parses a global GRIB file, crops it to the specified bounding box (e.g. India)
+        sequentially layer-by-layer to minimize memory usage, and saves it as a NetCDF file.
         """
-        logger.info(f"Cropping GRIB {grib_path} to lat={lat_range}, lon={lon_range}...")
-        parser = cls(grib_path, crop_bbox={"latitude": lat_range, "longitude": lon_range})
+        logger.info(f"Cropping GRIB {grib_path} sequentially to lat={lat_range}, lon={lon_range}...")
+        
+        filter_keys_list = [
+            {"typeOfLevel": "heightAboveGround", "level": 2},
+            {"typeOfLevel": "heightAboveGround", "level": 10},
+            {"typeOfLevel": "surface"},
+            {"typeOfLevel": "meanSea"},
+            {"typeOfLevel": "entireAtmosphere"}
+        ]
+        
+        temp_ncs = []
         try:
-            cropped_ds = parser.ds
+            for idx, filter_keys in enumerate(filter_keys_list):
+                try:
+                    logger.info(f"Processing GRIB layer {idx+1}/{len(filter_keys_list)}: {filter_keys}")
+                    ds = xr.open_dataset(grib_path, engine="cfgrib", backend_kwargs={"filter_by_keys": filter_keys})
+                    
+                    # Crop immediately
+                    is_lat_descending = float(ds.latitude[0]) > float(ds.latitude[-1])
+                    lat_slice = slice(lat_range[1], lat_range[0]) if is_lat_descending else slice(lat_range[0], lat_range[1])
+                    lon_slice = slice(lon_range[0], lon_range[1])
+                    cropped_layer = ds.sel(latitude=lat_slice, longitude=lon_slice)
+                    
+                    # Clean coordinates to prevent merge issues later
+                    to_drop = [c for c in cropped_layer.coords if c not in ["latitude", "longitude", "step", "valid_time", "time"]]
+                    cleaned_layer = cropped_layer.drop_vars(to_drop)
+                    
+                    # Save layer to a temporary NetCDF file
+                    layer_nc_path = f"{netcdf_path}.layer_{idx}.nc"
+                    cleaned_layer.to_netcdf(layer_nc_path, engine="scipy")
+                    
+                    # Close resources immediately
+                    ds.close()
+                    cleaned_layer.close()
+                    cropped_layer.close()
+                    
+                    temp_ncs.append(layer_nc_path)
+                except Exception as layer_err:
+                    logger.warning(f"Could not process GRIB layer {filter_keys}: {layer_err}")
             
-            # Save using scipy engine (which is native and requires no extra C libraries)
-            cropped_ds.to_netcdf(netcdf_path, engine="scipy")
-            logger.info(f"Successfully cropped and saved NetCDF file: {netcdf_path}")
-        except Exception as e:
-            logger.error(f"Error cropping GRIB to NetCDF: {e}")
-            raise e
+            if not temp_ncs:
+                raise RuntimeError("No GRIB layers could be processed.")
+                
+            # Merge the cropped NetCDF layers (which are tiny and in memory)
+            logger.info("Merging cropped layers...")
+            opened_ds_list = [xr.open_dataset(p) for p in temp_ncs]
+            merged_ds = xr.merge(opened_ds_list)
+            
+            # Save the final merged NetCDF file
+            merged_ds.to_netcdf(netcdf_path, engine="scipy")
+            
+            # Close all opened NetCDF datasets
+            merged_ds.close()
+            for ds_nc in opened_ds_list:
+                ds_nc.close()
+                
+            logger.info(f"Successfully created cropped NetCDF file: {netcdf_path}")
+            
         finally:
-            parser.close()
+            # Clean up the temporary NetCDF files
+            for p in temp_ncs:
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
