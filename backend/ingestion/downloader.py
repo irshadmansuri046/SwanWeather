@@ -259,7 +259,7 @@ class ECMWFDownloader:
         import time
         try:
             # Chunk steps to prevent S3 SlowDown throttling
-            for idx, step_chunk in enumerate(self._chunk_steps(steps, max_batch=15)):
+            for idx, step_chunk in enumerate(self._chunk_steps(steps, max_batch=5)):
                 chunk_target = f"{temp_path}.chunk_{idx}"
                 if os.path.exists(chunk_target):
                     os.remove(chunk_target)
@@ -270,7 +270,7 @@ class ECMWFDownloader:
                     raise IOError(f"Downloaded GRIB chunk {idx} is empty or missing.")
                     
                 temp_paths.append(chunk_target)
-                time.sleep(5)  # Short pause between chunks to respect rate limit
+                time.sleep(8)  # Short pause between chunks to respect rate limit
                 
             # Concatenate chunks into the final temp_path
             with open(temp_path, "wb") as outfile:
@@ -326,7 +326,7 @@ class ECMWFDownloader:
             raise e
 
     @staticmethod
-    def _chunk_steps(steps: List[int], max_batch: int = 15) -> List[List[int]]:
+    def _chunk_steps(steps: List[int], max_batch: int = 5) -> List[List[int]]:
         """Split a list of steps into sub-lists of max_batch elements."""
         for i in range(0, len(steps), max_batch):
             yield steps[i : i + max_batch]
