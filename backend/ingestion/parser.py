@@ -31,7 +31,14 @@ class GRIBParser:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"GRIB file not found: {file_path}")
         
+        self.ds = None
         self._datasets = []
+        
+        # Native NetCDF file check
+        if file_path.endswith(".nc"):
+            self.ds = xr.open_dataset(file_path)
+            return
+            
         # Open dataset levels with cfgrib engine
         
         # 1. Temperature & Dew Point (heightAboveGround, level 2)
@@ -313,3 +320,36 @@ class GRIBParser:
         df_hourly.dropna(subset=["temperature"], inplace=True)
         
         return df_hourly
+
+    @classmethod
+    def crop_and_save_netcdf(
+        cls,
+        grib_path: str,
+        netcdf_path: str,
+        lat_range: tuple[float, float] = (8.0, 38.0),
+        lon_range: tuple[float, float] = (68.0, 98.0)
+    ) -> None:
+        """
+        Parses a global GRIB file, crops it to the specified bounding box (e.g. India),
+        and saves it as a NetCDF file.
+        """
+        logger.info(f"Cropping GRIB {grib_path} to lat={lat_range}, lon={lon_range}...")
+        parser = cls(grib_path)
+        try:
+            ds = parser.ds
+            
+            # Determine latitude direction (GRIB can be descending or ascending)
+            is_lat_descending = float(ds.latitude[0]) > float(ds.latitude[-1])
+            lat_slice = slice(lat_range[1], lat_range[0]) if is_lat_descending else slice(lat_range[0], lat_range[1])
+            lon_slice = slice(lon_range[0], lon_range[1])
+            
+            cropped_ds = ds.sel(latitude=lat_slice, longitude=lon_slice)
+            
+            # Save using scipy engine (which is native and requires no extra C libraries)
+            cropped_ds.to_netcdf(netcdf_path, engine="scipy")
+            logger.info(f"Successfully cropped and saved NetCDF file: {netcdf_path}")
+        except Exception as e:
+            logger.error(f"Error cropping GRIB to NetCDF: {e}")
+            raise e
+        finally:
+            parser.close()

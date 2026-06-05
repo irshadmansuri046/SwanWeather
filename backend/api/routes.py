@@ -2,7 +2,7 @@ import os
 import logging
 from typing import Optional, Any
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, BackgroundTasks
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from sqlalchemy import select, delete
@@ -201,14 +201,23 @@ def get_custom_weather(
 
 from backend.workers.scheduler import WeatherScheduler
 
+def run_scheduler_task():
+    try:
+        scheduler = WeatherScheduler()
+        scheduler.run_once()
+    except Exception as e:
+        logger.error(f"Background scheduler task failed: {e}", exc_info=True)
+
 @router.post("/scheduler/run")
 def trigger_scheduler_run(
+    background_tasks: BackgroundTasks,
     secret: Optional[str] = Header(None, alias="X-Scheduler-Secret"),
     db: Session = Depends(get_db)
 ):
     """
     HTTP trigger to run the forecast ingestion cycle check.
     Secured by a secret header token (X-Scheduler-Secret).
+    Runs asynchronously in the background to prevent Gateway 502 timeouts.
     """
     expected_secret = os.getenv("SCHEDULER_SECRET")
     if not expected_secret:
@@ -217,11 +226,5 @@ def trigger_scheduler_run(
     if secret != expected_secret:
         raise HTTPException(status_code=403, detail="Forbidden: Invalid scheduler secret token.")
         
-    try:
-        # Instantiate and execute scheduler check once
-        scheduler = WeatherScheduler()
-        scheduler.run_once()
-        return {"status": "SUCCESS", "message": "Scheduler execution completed successfully."}
-    except Exception as e:
-        logger.error(f"Scheduler HTTP trigger failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Scheduler failed: {str(e)}")
+    background_tasks.add_task(run_scheduler_task)
+    return {"status": "RUNNING", "message": "Scheduler execution started in the background."}

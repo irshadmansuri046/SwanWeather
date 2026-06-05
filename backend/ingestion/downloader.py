@@ -167,10 +167,10 @@ class ECMWFDownloader:
 
     def get_target_path(self, run_date: date, run_hour: int) -> str:
         """
-        Generates standard file name: ecmwf_YYYYMMDD_HHutc.grib2
+        Generates standard file name: ecmwf_YYYYMMDD_HHutc.nc
         """
         date_str = run_date.strftime("%Y%m%d")
-        filename = f"ecmwf_{date_str}_{run_hour:02d}utc.grib2"
+        filename = f"ecmwf_{date_str}_{run_hour:02d}utc.nc"
         return os.path.join(self.storage_dir, filename)
 
     @staticmethod
@@ -262,23 +262,34 @@ class ECMWFDownloader:
             if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
                 raise IOError("Downloaded GRIB file is empty or missing.")
 
-            # Rename temp file to target path
-            os.rename(temp_path, target_path)
+            # Crop the downloaded GRIB file to India's bounding box and save as NetCDF (.nc)
+            grib_temp_path = temp_path + ".grib2"
+            os.rename(temp_path, grib_temp_path)
+            
+            try:
+                from backend.ingestion.parser import GRIBParser
+                GRIBParser.crop_and_save_netcdf(grib_temp_path, target_path)
+            finally:
+                if os.path.exists(grib_temp_path):
+                    try:
+                        os.remove(grib_temp_path)
+                    except Exception:
+                        pass
             
             file_size = os.path.getsize(target_path)
             checksum = self.compute_sha256(target_path)
-            logger.info(f"Successfully downloaded cycle {run_date} {run_hour:02d}:00 UTC. Checksum: {checksum}")
+            logger.info(f"Successfully processed and cropped cycle {run_date} {run_hour:02d}:00 UTC. Checksum: {checksum}")
             
             # Upload to Supabase Storage if local storage is not enabled
             if not self.use_local_storage:
                 if not self._upload_to_supabase(target_path, filename):
-                    logger.warning(f"Failed to upload {filename} to Supabase after download.")
+                    raise RuntimeError(f"Failed to upload GRIB file {filename} to Supabase after download.")
                 else:
                     logger.info(f"Uploaded {filename} to Supabase successfully.")
             return target_path, checksum, file_size
             
         except Exception as e:
-            logger.error(f"Failed to download cycle {run_date} {run_hour:02d}:00 UTC: {e}")
+            logger.error(f"Failed to download and process cycle {run_date} {run_hour:02d}:00 UTC: {e}")
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)

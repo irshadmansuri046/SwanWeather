@@ -20,7 +20,7 @@ def test_get_target_path():
     downloader = ECMWFDownloader(storage_dir="/tmp/test_grib")
     dt = datetime(2026, 6, 2, 12, 0)
     path = downloader.get_target_path(dt.date(), dt.hour)
-    assert os.path.basename(path) == "ecmwf_20260602_12utc.grib2"
+    assert os.path.basename(path) == "ecmwf_20260602_12utc.nc"
 
 def test_compute_sha256(tmp_path):
     downloader = ECMWFDownloader()

@@ -151,7 +151,7 @@ def test_trigger_scheduler_run_authorized(mock_scheduler_class, override_db, mon
     response = client.post("/weather/scheduler/run", headers={"X-Scheduler-Secret": "testsecret"})
     
     assert response.status_code == 200
-    assert response.json()["status"] == "SUCCESS"
+    assert response.json()["status"] == "RUNNING"
     mock_scheduler.run_once.assert_called_once()
 
 @patch("backend.api.routes.WeatherScheduler")
