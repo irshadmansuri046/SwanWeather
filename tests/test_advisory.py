@@ -129,3 +129,90 @@ def test_get_advisory_engine(db_session):
     assert alerts[0]["severity"] == "CRITICAL"
     assert alerts[0]["actual_value"] == 38.0
     assert alerts[0]["advisory_text"] == "Heat stress advisory text"
+
+@pytest.mark.usefixtures("db_session")
+def test_post_custom_weather_advisory(db_session):
+    # 1. Set up crop, stage, and rule in test DB
+    crop = Crop(name="Custom Weather Test Crop", category="Cereal")
+    db_session.add(crop)
+    db_session.commit()
+
+    stage = CropStage(crop_id=crop.id, stage_name="Flowering Custom", stage_order=3)
+    db_session.add(stage)
+    db_session.commit()
+
+    rule = CropStageRule(
+        crop_stage_id=stage.id,
+        rule_name="Heat Stress Custom",
+        parameter="temp_max",
+        operator=">",
+        threshold_value=35.0,
+        severity="CRITICAL",
+        advisory_text="Heat stress custom advisory"
+    )
+    db_session.add(rule)
+    db_session.commit()
+
+    # 2. Set up daily weather forecast record in DB
+    lat, lon = 20.0, 75.0
+    forecast_dt = date(2026, 6, 2)
+    cycle_dt = datetime(2026, 6, 2, 12, 0, tzinfo=timezone.utc)
+    
+    daily_weather = WeatherDaily(
+        latitude=lat,
+        longitude=lon,
+        forecast_date=forecast_dt,
+        cycle_time=cycle_dt,
+        temp_min=25.0,
+        temp_max=38.0,  # Exceeds the rule's 35.0 threshold!
+        precipitation=0.0,
+        humidity_avg=60.0,
+        wind_speed_max=3.0,
+        weather_code="CLEAR"
+    )
+    db_session.add(daily_weather)
+    db_session.commit()
+
+    # 3. Mock WeatherPipeline methods to simulate meteomatics custom response
+    mock_custom_data = {
+        "status": 200,
+        "message": "weather data fetched successfully",
+        "data": {
+            "daily": [],
+            "weekly": [],
+            "common": []
+        }
+    }
+
+    # Test case A: crop_stages is omitted
+    with patch("backend.api.routes.WeatherPipeline.get_custom_forecast", return_value=mock_custom_data):
+        payload_no_crops = {
+            "latitude": lat,
+            "longitude": lon
+        }
+        response = client.post("/weather/custom", json=payload_no_crops)
+        
+    assert response.status_code == 200
+    res_data = response.json()
+    assert res_data["status"] == 200
+    assert res_data["advisories"] is None
+
+    # Test case B: crop_stages is populated
+    with patch("backend.api.routes.WeatherPipeline.get_custom_forecast", return_value=mock_custom_data):
+        payload_with_crops = {
+            "latitude": lat,
+            "longitude": lon,
+            "crop_stages": [
+                {"crop_id": crop.id, "stage_id": stage.id}
+            ]
+        }
+        response = client.post("/weather/custom", json=payload_with_crops)
+        
+    assert response.status_code == 200
+    res_data = response.json()
+    assert res_data["status"] == 200
+    advisories = res_data["advisories"]
+    assert len(advisories) > 0
+    assert advisories[0]["crop_name"] == "Custom Weather Test Crop"
+    assert advisories[0]["alerts"][0]["rule_name"] == "Heat Stress Custom"
+

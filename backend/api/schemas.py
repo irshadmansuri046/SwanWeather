@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import date
-from typing import List
+from typing import List, Optional, Any
 
 class WeatherCurrentDTO(BaseModel):
     time: str = Field(..., description="Datetime of the forecast point in IST")
@@ -68,7 +68,17 @@ class WeatherCustomData(BaseModel):
     weekly: List[CustomParameterData]
     common: List[CustomParameterData]
 
+class CropStageQuery(BaseModel):
+    crop_id: int
+    stage_id: int
+
+class CustomWeatherRequest(BaseModel):
+    latitude: float = Field(..., ge=-90.0, le=90.0, description="Latitude of the location")
+    longitude: float = Field(..., ge=-180.0, le=180.0, description="Longitude of the location")
+    crop_stages: Optional[List[CropStageQuery]] = Field(default=None, description="Optional crop stages to evaluate weather advisories")
+
 class WeatherCustomResponse(BaseModel):
     status: int
     message: str
     data: WeatherCustomData
+    advisories: Optional[List[Any]] = None

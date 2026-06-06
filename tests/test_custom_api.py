@@ -180,7 +180,7 @@ def test_route_custom_weather(mock_pipeline_class, override_db):
     }
     mock_pipeline_class.return_value = mock_pipeline
     
-    response = client.get(f"/weather/custom?latitude={LAT}&longitude={LON}")
+    response = client.post("/weather/custom", json={"latitude": LAT, "longitude": LON})
     assert response.status_code == 200
     json_data = response.json()
     assert json_data["status"] == 200

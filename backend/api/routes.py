@@ -10,7 +10,7 @@ from sqlalchemy import select, delete
 
 from backend.database.connection import get_db
 from backend.database.models import ApiCache, Crop, CropStage
-from backend.api.schemas import WeatherCurrentDTO, WeatherHourlyResponse, WeatherDailyResponse, WeatherFullResponse, WeatherCustomResponse
+from backend.api.schemas import WeatherCurrentDTO, WeatherHourlyResponse, WeatherDailyResponse, WeatherFullResponse, WeatherCustomResponse, CustomWeatherRequest, CropStageQuery
 from backend.workers.pipeline import WeatherPipeline
 
 logger = logging.getLogger(__name__)
@@ -172,33 +172,49 @@ def get_daily_forecast(
         logger.error(f"Error handling daily weather query: {e}", exc_info=True)
         handle_pipeline_exception(e)
 
-@router.get("/custom", response_model=WeatherCustomResponse)
+@router.post("/custom", response_model=WeatherCustomResponse)
 def get_custom_weather(
-    latitude: float = Query(..., ge=-90.0, le=90.0, description="Latitude of the location"),
-    longitude: float = Query(..., ge=-180.0, le=180.0, description="Longitude of the location"),
+    req: CustomWeatherRequest,
     db: Session = Depends(get_db)
 ):
     """
     Returns the custom Meteomatics-style weather forecast package.
+    Optionally evaluates and merges crop stage advisories if crop_stages is provided.
     """
-    lat_grid = round(latitude * 4) / 4
-    lon_grid = round(longitude * 4) / 4
+    lat_grid = round(req.latitude * 4) / 4
+    lon_grid = round(req.longitude * 4) / 4
     
     cache_key = f"weather_custom_{lat_grid:.2f}_{lon_grid:.2f}"
     
     cached = get_cached_response(db, cache_key)
     if cached:
-        return cached
-        
-    try:
-        pipeline = WeatherPipeline(db)
-        data = pipeline.get_custom_forecast(latitude, longitude)
-        
-        set_cached_response(db, cache_key, data)
-        return data
-    except Exception as e:
-        logger.error(f"Error handling custom weather query: {e}", exc_info=True)
-        handle_pipeline_exception(e)
+        custom_data = cached
+    else:
+        try:
+            pipeline = WeatherPipeline(db)
+            custom_data = pipeline.get_custom_forecast(req.latitude, req.longitude)
+            set_cached_response(db, cache_key, custom_data)
+        except Exception as e:
+            logger.error(f"Error handling custom weather query: {e}", exc_info=True)
+            handle_pipeline_exception(e)
+            return
+            
+    advisories = None
+    if req.crop_stages:
+        try:
+            from backend.workers.advisory_engine import AdvisoryEngine
+            pairs = [{"crop_id": cs.crop_id, "stage_id": cs.stage_id} for cs in req.crop_stages]
+            advisories = AdvisoryEngine.evaluate_rules(db, req.latitude, req.longitude, pairs)
+        except Exception as e:
+            logger.error(f"Error evaluating crop advisories in custom weather: {e}", exc_info=True)
+            advisories = []
+            
+    return {
+        "status": custom_data["status"],
+        "message": custom_data["message"],
+        "data": custom_data["data"],
+        "advisories": advisories
+    }
 
 from backend.workers.scheduler import WeatherScheduler
 
@@ -229,10 +245,6 @@ def trigger_scheduler_run(
         
     background_tasks.add_task(run_scheduler_task)
     return {"status": "RUNNING", "message": "Scheduler execution started in the background."}
-
-class CropStageQuery(BaseModel):
-    crop_id: int
-    stage_id: int
 
 class AdvisoryRequest(BaseModel):
     latitude: float
