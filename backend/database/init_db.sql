@@ -88,3 +88,34 @@ CREATE TABLE IF NOT EXISTS api_cache (
 
 -- Index for expiration cleanup
 CREATE INDEX IF NOT EXISTS idx_api_cache_expires_at ON api_cache(expires_at);
+
+-- 6. Crops Table
+CREATE TABLE IF NOT EXISTS crops (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    category VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 7. Crop Growth Stages
+CREATE TABLE IF NOT EXISTS crop_stages (
+    id SERIAL PRIMARY KEY,
+    crop_id INT NOT NULL REFERENCES crops(id) ON DELETE CASCADE,
+    stage_name VARCHAR(100) NOT NULL,
+    stage_order INT NOT NULL,
+    description TEXT,
+    UNIQUE(crop_id, stage_name)
+);
+
+-- 8. Crop Stage Weather Rules (Thresholds)
+CREATE TABLE IF NOT EXISTS crop_stage_rules (
+    id SERIAL PRIMARY KEY,
+    crop_stage_id INT NOT NULL REFERENCES crop_stages(id) ON DELETE CASCADE,
+    rule_name VARCHAR(100) NOT NULL,
+    parameter VARCHAR(50) NOT NULL,
+    operator VARCHAR(5) NOT NULL,
+    threshold_value NUMERIC(5, 2) NOT NULL,
+    severity VARCHAR(20) NOT NULL DEFAULT 'WARNING',
+    advisory_text TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);

@@ -1,6 +1,7 @@
 import os
 import logging
-from typing import Optional, Any
+from typing import Optional, Any, List
+from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, BackgroundTasks
 from fastapi.encoders import jsonable_encoder
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, delete
 
 from backend.database.connection import get_db
-from backend.database.models import ApiCache
+from backend.database.models import ApiCache, Crop, CropStage
 from backend.api.schemas import WeatherCurrentDTO, WeatherHourlyResponse, WeatherDailyResponse, WeatherFullResponse, WeatherCustomResponse
 from backend.workers.pipeline import WeatherPipeline
 
@@ -228,3 +229,41 @@ def trigger_scheduler_run(
         
     background_tasks.add_task(run_scheduler_task)
     return {"status": "RUNNING", "message": "Scheduler execution started in the background."}
+
+class CropStageQuery(BaseModel):
+    crop_id: int
+    stage_id: int
+
+class AdvisoryRequest(BaseModel):
+    latitude: float
+    longitude: float
+    crop_stages: List[CropStageQuery]
+
+@router.get("/crops")
+def get_crops(db: Session = Depends(get_db)):
+    """List all supported crops."""
+    stmt = select(Crop).order_by(Crop.name.asc())
+    return db.execute(stmt).scalars().all()
+
+@router.get("/crops/{crop_id}/stages")
+def get_crop_stages(crop_id: int, db: Session = Depends(get_db)):
+    """Get all growth stages for a crop."""
+    stmt = select(CropStage).where(CropStage.crop_id == crop_id).order_by(CropStage.stage_order.asc())
+    return db.execute(stmt).scalars().all()
+
+@router.post("/advisory")
+def get_advisories(req: AdvisoryRequest, db: Session = Depends(get_db)):
+    """Evaluate weather forecast against crop rules and return alerts + advisories."""
+    try:
+        # Check cache / ensure weather data exists for the coordinates
+        # We invoke get_or_create_forecast to trigger download/load of GRIB if missing
+        pipeline = WeatherPipeline(db)
+        pipeline.get_or_create_forecast(req.latitude, req.longitude)
+        
+        from backend.workers.advisory_engine import AdvisoryEngine
+        pairs = [{"crop_id": cs.crop_id, "stage_id": cs.stage_id} for cs in req.crop_stages]
+        advisories = AdvisoryEngine.evaluate_rules(db, req.latitude, req.longitude, pairs)
+        return {"latitude": req.latitude, "longitude": req.longitude, "advisories": advisories}
+    except Exception as e:
+        logger.error(f"Error evaluating crop advisories: {e}", exc_info=True)
+        handle_pipeline_exception(e)

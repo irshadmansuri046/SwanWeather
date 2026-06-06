@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, Numeric, BigInteger, Text, ForeignKey, Date, JSON, Index, func
+from sqlalchemy import Column, String, DateTime, Numeric, BigInteger, Text, ForeignKey, Date, JSON, Index, func, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from .connection import Base
 
@@ -78,4 +78,34 @@ class ApiCache(Base):
     cache_key = Column(String(255), primary_key=True)
     cache_value = Column(JSON, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Crop(Base):
+    __tablename__ = "crops"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    category = Column(String(50), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class CropStage(Base):
+    __tablename__ = "crop_stages"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    crop_id = Column(Integer, ForeignKey("crops.id", ondelete="CASCADE"), nullable=False)
+    stage_name = Column(String(100), nullable=False)
+    stage_order = Column(Integer, nullable=False)
+    description = Column(Text, nullable=True)
+
+class CropStageRule(Base):
+    __tablename__ = "crop_stage_rules"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    crop_stage_id = Column(Integer, ForeignKey("crop_stages.id", ondelete="CASCADE"), nullable=False)
+    rule_name = Column(String(100), nullable=False)
+    parameter = Column(String(50), nullable=False)  # temp_max, temp_min, precipitation, humidity_avg, wind_speed_max
+    operator = Column(String(5), nullable=False)     # >, <, >=, <=
+    threshold_value = Column(Numeric(5, 2), nullable=False)
+    severity = Column(String(20), nullable=False, default="WARNING")
+    advisory_text = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
