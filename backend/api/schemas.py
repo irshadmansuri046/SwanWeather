@@ -48,7 +48,7 @@ class WeatherFullResponse(BaseModel):
 
 class CustomDateValue(BaseModel):
     date: str
-    value: float
+    value: Any
 
 class CustomCoordinateData(BaseModel):
     lat: float

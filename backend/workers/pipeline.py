@@ -334,6 +334,14 @@ class WeatherPipeline:
         dt_ist = dt.astimezone(ist_tz)
         return dt_ist.strftime("%Y-%m-%d %I:%M:%S %p")
 
+    @staticmethod
+    def _timestamp_to_ist_hm(ts: int) -> str:
+        """Converts Unix timestamp to IST HH:MM string."""
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        dt_ist = dt.astimezone(ist_tz)
+        return dt_ist.strftime("%H:%M")
+
     def _get_latest_fallback_forecast(self, lat: float, lon: float) -> tuple[List[WeatherForecast], Optional[datetime]]:
         """
         Retrieves the latest available forecast cycle in the database for a coordinate.
@@ -451,13 +459,13 @@ class WeatherPipeline:
             })
 
         add_hourly_param("temperature", "t_2m:C", "2m", "°C", "TEMPERATURE at 2m (°C)", lambda pt: float(pt.temperature))
-        add_hourly_param("precipitation", "precip_24h:mm", "", "mm", "PRECIPITATION (mm)", lambda pt: float(pt.precipitation))
-        add_hourly_param("wind_speed", "wind_speed_2m:kmh", "2m", "km/h", "WIND SPEED at 2m (km/h)", lambda pt: round(float(pt.wind_speed) * 3.6, 1))
-        add_hourly_param("wind_direction", "wind_dir_2m:d", "2m", "°", "WIND DIRECTION at 2m (°)", lambda pt: float(pt.wind_direction))
-        add_hourly_param("wind_gusts", "wind_gusts_100m_1h:kmh", "100m_1h", "km/h", "WIND GUSTS at 100m_1h (km/h)", lambda pt: round(float(pt.wind_speed) * 3.6 * 1.3, 1))
+        add_hourly_param("precipitation", "precip_1h:mm", "", "mm", "PRECIPITATION at 1h (mm)", lambda pt: float(pt.precipitation))
+        add_hourly_param("wind_speed", "wind_speed_10m:kmh", "10m", "km/h", "WIND SPEED at 10m (km/h)", lambda pt: round(float(pt.wind_speed) * 3.6, 1))
+        add_hourly_param("wind_direction", "wind_dir_10m:d", "10m", "°", "WIND DIRECTION at 10m (°)", lambda pt: float(pt.wind_direction))
+        add_hourly_param("wind_gusts", "wind_gusts_10m_1h:kmh", "10m_1h", "km/h", "WIND GUSTS at 10m_1h (km/h)", lambda pt: round(float(pt.wind_speed) * 3.6 * 1.3, 1))
         add_hourly_param("relative_humidity", "relative_humidity_2m:p", "2m", "%", "RELATIVE HUMIDITY at 2m (%)", lambda pt: float(pt.humidity))
-        add_hourly_param("absolute_humidity", "absolute_humidity_2m:gm3", "2m", "g/m\u00b3", "ABSOLUTE HUMIDITY at 2m (g/m\u00b3)", lambda pt: calculations.calculate_absolute_humidity(float(pt.temperature), float(pt.humidity)))
-        add_hourly_param("dew_point", "dew_point_2m:C", "2m", "\u00b0C", "DEW POINT at 2m (\u00b0C)", lambda pt: float(pt.dew_point))
+        add_hourly_param("absolute_humidity", "absolute_humidity_2m:gm3", "2m", "g/m³", "ABSOLUTE HUMIDITY at 2m (g/m³)", lambda pt: calculations.calculate_absolute_humidity(float(pt.temperature), float(pt.humidity)))
+        add_hourly_param("dew_point", "dew_point_2m:C", "2m", "°C", "DEW POINT at 2m (°C)", lambda pt: float(pt.dew_point))
         add_hourly_param("mean_effective_cloud_cover", "effective_cloud_cover_mean_1h:p", "1h", "%", "MEAN EFFECTIVE CLOUD COVER at 1h (%)", lambda pt: float(pt.cloud_cover))
         add_hourly_param("soil_frost", "soil_frost:p", "", "%", "SOIL FROST (%)", lambda pt: calculations.calculate_soil_frost(float(pt.temperature)))
 
@@ -482,16 +490,28 @@ class WeatherPipeline:
                 "coordinates": make_coord_dates(dates_list)
             })
 
-        add_daily_param("min_temperature", "t_min_2m_24h:C", "2m_24h", "\u00b0C", "MIN TEMPERATURE at 2m_24h (\u00b0C)", lambda d: float(d.temp_min))
-        add_daily_param("max_temperature", "t_max_2m_24h:C", "2m_24h", "\u00b0C", "MAX TEMPERATURE at 2m_24h (\u00b0C)", lambda d: float(d.temp_max))
-        add_daily_param("precipitation_probability", "prob_precip_24h:p", "24h", "%", "PRECIPITATION PROBABILITY at 24h (%)", lambda d: 100.0 if float(d.precipitation) > 0.0 else round(min(100.0, float(d.temp_max) * 2.0), 1))
-        add_daily_param("wind_gusts", "wind_gusts_100m_24h:kmh", "100m_24h", "km/h", "WIND GUSTS at 100m_24h (km/h)", lambda d: round(float(d.wind_speed_max) * 3.6 * 1.3, 1))
+        # Estimate daily probability of precipitation (PoP)
+        def estimate_pop(d):
+            precip = float(d.precipitation)
+            humidity = float(d.humidity_avg)
+            if precip == 0.0:
+                return round(max(0.0, min(30.0, humidity - 60.0)), 1)
+            else:
+                base = 40.0
+                precip_factor = min(35.0, precip * 5.0)  # up to 35% for 7mm rain
+                humidity_factor = max(0.0, min(20.0, (humidity - 50.0) * 0.5))  # up to 20% for 90% humidity
+                return round(min(95.0, base + precip_factor + humidity_factor), 1)
+
+        add_daily_param("min_temperature", "t_min_2m_24h:C", "2m_24h", "°C", "MIN TEMPERATURE at 2m_24h (°C)", lambda d: float(d.temp_min))
+        add_daily_param("max_temperature", "t_max_2m_24h:C", "2m_24h", "°C", "MAX TEMPERATURE at 2m_24h (°C)", lambda d: float(d.temp_max))
+        add_daily_param("precipitation_probability", "prob_precip_24h:p", "24h", "%", "PRECIPITATION PROBABILITY at 24h (%)", estimate_pop)
+        add_daily_param("wind_gusts", "wind_gusts_10m_24h:kmh", "10m_24h", "km/h", "WIND GUSTS at 10m_24h (km/h)", lambda d: round(float(d.wind_speed_max) * 3.6 * 1.3, 1))
         add_daily_param("relative_humidity_min", "relative_humidity_min_2m_24h:p", "2m_24h", "%", "RELATIVE HUMIDITY MIN at 2m_24h (%)", lambda d: round(max(10.0, float(d.humidity_avg) - 20.0), 1))
-        add_daily_param("absolute_humidity", "absolute_humidity_2m:gm3", "2m", "g/m\u00b3", "ABSOLUTE HUMIDITY at 2m (g/m\u00b3)", lambda d: calculations.calculate_absolute_humidity(float(d.temp_min), float(d.humidity_avg)))
-        add_daily_param("dew_point", "dew_point_2m:C", "2m", "\u00b0C", "DEW POINT at 2m (\u00b0C)", lambda d: round(float(d.temp_min) - 4.0, 1))
+        add_daily_param("absolute_humidity", "absolute_humidity_2m:gm3", "2m", "g/m³", "ABSOLUTE HUMIDITY at 2m (g/m³)", lambda d: calculations.calculate_absolute_humidity(float(d.temp_min), float(d.humidity_avg)))
+        add_daily_param("dew_point", "dew_point_2m:C", "2m", "°C", "DEW POINT at 2m (°C)", lambda d: round(float(d.temp_min) - 4.0, 1))
         add_daily_param("soil_frost", "soil_frost:p", "", "%", "SOIL FROST (%)", lambda d: calculations.calculate_soil_frost(float(d.temp_min)))
-        add_daily_param("temperature_mean", "t_mean_2m_24h:C", "2m_24h", "\u00b0C", "TEMPERATURE MEAN at 2m_24h (\u00b0C)", lambda d: round((float(d.temp_min) + float(d.temp_max)) / 2.0, 1))
-        add_daily_param("wind_speed", "wind_speed_2m:kmh", "2m", "km/h", "WIND SPEED at 2m (km/h)", lambda d: round(float(d.wind_speed_max) * 3.6, 1))
+        add_daily_param("temperature_mean", "t_mean_2m_24h:C", "2m_24h", "°C", "TEMPERATURE MEAN at 2m_24h (°C)", lambda d: round((float(d.temp_min) + float(d.temp_max)) / 2.0, 1))
+        add_daily_param("wind_speed", "wind_speed_10m:kmh", "10m", "km/h", "WIND SPEED at 10m (km/h)", lambda d: round(float(d.wind_speed_max) * 3.6, 1))
 
         # 4. Build common/astronomical parameter lists (grouped under "common" key)
         common_params = []
@@ -514,16 +534,21 @@ class WeatherPipeline:
             moon_phases.append({"date": date_str, "value": phase})
             
             rise_ts, set_ts = calculations.calculate_sunrise_sunset(lat, lon, d.forecast_date)
-            sunrise_vals.append({"date": date_str, "value": rise_ts})
-            sunset_vals.append({"date": date_str, "value": set_ts})
+            sunrise_str = self._timestamp_to_ist_hm(rise_ts)
+            sunset_str = self._timestamp_to_ist_hm(set_ts)
+            sunrise_vals.append({"date": date_str, "value": sunrise_str})
+            sunset_vals.append({"date": date_str, "value": sunset_str})
             
             mrise, mset = calculations.calculate_moonrise_moonset(rise_ts, set_ts, phase)
-            moonrise_vals.append({"date": date_str, "value": mrise})
-            moonset_vals.append({"date": date_str, "value": mset})
+            moonrise_str = self._timestamp_to_ist_hm(mrise)
+            moonset_str = self._timestamp_to_ist_hm(mset)
+            moonrise_vals.append({"date": date_str, "value": moonrise_str})
+            moonset_vals.append({"date": date_str, "value": moonset_str})
             
             precip_vals.append({"date": date_str, "value": float(d.precipitation)})
             
-            heavy_rain_warnings.append({"date": date_str, "value": 1.0 if float(d.precipitation) > 10.0 else 0.0})
+            # IMD Heavy Rain definition: >= 64.5 mm
+            heavy_rain_warnings.append({"date": date_str, "value": 1.0 if float(d.precipitation) >= 64.5 else 0.0})
             wind_warnings.append({"date": date_str, "value": 1.0 if float(d.wind_speed_max) > 10.0 else 0.0})
 
         def add_common_param(parameter, raw_key, height, unit, label, dates_list):
@@ -540,10 +565,10 @@ class WeatherPipeline:
         add_common_param("moon_age", "moon_age:d", "", "d", "MOON AGE (d)", moon_ages)
         add_common_param("moon_phase", "moon_phase:idx", "", "index", "MOON PHASE (index)", moon_phases)
         add_common_param("precipitation", "precip_24h:mm", "24h", "mm", "PRECIPITATION at 24h (mm)", precip_vals)
-        add_common_param("sunrise", "sunrise:ux", "", "ux", "SUNRISE (ux)", sunrise_vals)
-        add_common_param("sunset", "sunset:ux", "", "ux", "SUNSET (ux)", sunset_vals)
-        add_common_param("moonrise", "moonrise:ux", "", "ux", "MOONRISE (ux)", moonrise_vals)
-        add_common_param("moonset", "moonset:ux", "", "ux", "MOONSET (ux)", moonset_vals)
+        add_common_param("sunrise", "sunrise:sql", "", "hh:mm", "SUNRISE (hh:mm)", sunrise_vals)
+        add_common_param("sunset", "sunset:sql", "", "hh:mm", "SUNSET (hh:mm)", sunset_vals)
+        add_common_param("moonrise", "moonrise:sql", "", "hh:mm", "MOONRISE (hh:mm)", moonrise_vals)
+        add_common_param("moonset", "moonset:sql", "", "hh:mm", "MOONSET (hh:mm)", moonset_vals)
         add_common_param("heavy_rain_warning", "heavy_rain_warning_6h:idx", "6h", "index", "HEAVY RAIN WARNING 6H (index)", heavy_rain_warnings)
         add_common_param("wind_warning", "wind_warning_1h:idx", "1h", "index", "WIND WARNING 1H (index)", wind_warnings)
 
@@ -556,4 +581,5 @@ class WeatherPipeline:
                 "common": common_params
             }
         }
+
 
