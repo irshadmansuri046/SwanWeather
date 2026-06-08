@@ -99,7 +99,7 @@ RULES_BY_STAGE = {
             "operator": ">",
             "threshold": 25.0,
             "severity": "WARNING",
-            "advisory": "Heavy rainfall detected. Delay sowing or ensure proper drainage channels in fields to prevent seed washing/waterlogging."
+            "advisory": "Heavy rain expected. Delay sowing and clear drainage channels to prevent waterlogging."
         },
         {
             "name": "Low Temperature (Germination Delay)",
@@ -107,7 +107,7 @@ RULES_BY_STAGE = {
             "operator": "<",
             "threshold": 12.0,
             "severity": "INFO",
-            "advisory": "Minimum temperature is low, which might delay seed germination. Ensure adequate soil moisture."
+            "advisory": "Cold weather may delay germination. Keep soil slightly moist."
         }
     ],
     
@@ -119,7 +119,7 @@ RULES_BY_STAGE = {
             "operator": ">",
             "threshold": 12.0,
             "severity": "WARNING",
-            "advisory": "High wind speeds forecasted. Provide staking support to young plants/vines and postpone pesticide spraying."
+            "advisory": "Strong winds expected. Support young plants and delay pesticide spraying."
         },
         {
             "name": "Extreme Heat Stress",
@@ -127,7 +127,7 @@ RULES_BY_STAGE = {
             "operator": ">",
             "threshold": 38.0,
             "severity": "WARNING",
-            "advisory": "High temperature stress. Apply light frequent irrigation in early morning/evening hours to prevent moisture stress."
+            "advisory": "Hot weather. Water crops in the morning or evening to protect them."
         }
     ],
     
@@ -139,7 +139,7 @@ RULES_BY_STAGE = {
             "operator": ">",
             "threshold": 35.0,
             "severity": "CRITICAL",
-            "advisory": "Maximum temperature exceeds 35°C during flowering. Risk of flower drop and poor fruit set. Apply irrigation immediately."
+            "advisory": "Extreme heat can cause flower drop. Water crops immediately to protect them."
         },
         {
             "name": "High Humidity (Fungal Disease Risk)",
@@ -147,7 +147,7 @@ RULES_BY_STAGE = {
             "operator": ">",
             "threshold": 85.0,
             "severity": "WARNING",
-            "advisory": "High relative humidity promotes fungal development. Inspect crop for pests/blight and apply preventive organic fungicides if needed."
+            "advisory": "Damp weather increases disease risk. Check crops for pests and apply organic spray."
         },
         {
             "name": "Heavy Rainfall (Pollination Disruption)",
@@ -155,7 +155,7 @@ RULES_BY_STAGE = {
             "operator": ">",
             "threshold": 15.0,
             "severity": "WARNING",
-            "advisory": "Moderate to heavy rainfall forecasted. Postpone manual pollination or foliar spray applications."
+            "advisory": "Rain expected. Delay manual pollination and spray applications."
         }
     ],
     
@@ -167,7 +167,7 @@ RULES_BY_STAGE = {
             "operator": ">",
             "threshold": 8.0,
             "severity": "CRITICAL",
-            "advisory": "Rainfall during harvesting can rot the crop and reduce quality. Postpone harvest and store already harvested crop in a safe shelter."
+            "advisory": "Rain during harvest can spoil crops. Delay harvest and move harvested crops to safe shelter."
         },
         {
             "name": "Frost Risk (Cold Injury)",
@@ -175,7 +175,7 @@ RULES_BY_STAGE = {
             "operator": "<",
             "threshold": 4.0,
             "severity": "CRITICAL",
-            "advisory": "Frost warning! Minimum temperature expected to drop below 4°C. Irrigate fields or create smoke fires around fields to raise temperature."
+            "advisory": "Frost warning! Water fields or light small fires to protect crops from extreme cold."
         }
     ]
 }
