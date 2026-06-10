@@ -1,12 +1,8 @@
-import os
-from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from backend import config
 
-# Load environment variables
-load_dotenv()
-
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgrespassword@localhost:5432/weatherdb")
+DATABASE_URL = config.DATABASE_URL
 
 # Create engine
 engine = create_engine(

@@ -12,6 +12,7 @@ from backend.database.connection import get_db
 from backend.database.models import ApiCache, Crop, CropStage
 from backend.api.schemas import WeatherCurrentDTO, WeatherHourlyResponse, WeatherDailyResponse, WeatherFullResponse, WeatherCustomResponse, CustomWeatherRequest, CropStageQuery
 from backend.workers.pipeline import WeatherPipeline
+from backend import config
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/weather", tags=["weather"])
@@ -64,7 +65,7 @@ def handle_pipeline_exception(e: Exception):
 def handle_full_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
     lat_grid = round(latitude * 4) / 4
     lon_grid = round(longitude * 4) / 4
-    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+    provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
     cache_key = f"weather_full_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
     
     cached = get_cached_response(db, cache_key)
@@ -108,7 +109,7 @@ def get_imd_full_weather(
 def handle_current_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
     lat_grid = round(latitude * 4) / 4
     lon_grid = round(longitude * 4) / 4
-    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+    provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
     cache_key = f"weather_current_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
     
     cached = get_cached_response(db, cache_key)
@@ -147,7 +148,7 @@ def get_imd_current_weather(
 def handle_hourly_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
     lat_grid = round(latitude * 4) / 4
     lon_grid = round(longitude * 4) / 4
-    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+    provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
     cache_key = f"weather_hourly_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
     
     cached = get_cached_response(db, cache_key)
@@ -186,7 +187,7 @@ def get_imd_hourly_forecast(
 def handle_daily_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
     lat_grid = round(latitude * 4) / 4
     lon_grid = round(longitude * 4) / 4
-    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+    provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
     cache_key = f"weather_daily_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
     
     cached = get_cached_response(db, cache_key)
@@ -225,7 +226,7 @@ def get_imd_daily_forecast(
 def handle_custom_weather(req: CustomWeatherRequest, db: Session, provider_name: Optional[str] = None):
     lat_grid = round(req.latitude * 4) / 4
     lon_grid = round(req.longitude * 4) / 4
-    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+    provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
     cache_key = f"weather_custom_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
     
     cached = get_cached_response(db, cache_key)
@@ -300,7 +301,7 @@ def trigger_scheduler_run(
     Secured by a secret header token (X-Scheduler-Secret).
     Runs asynchronously in the background to prevent Gateway 502 timeouts.
     """
-    expected_secret = os.getenv("SCHEDULER_SECRET")
+    expected_secret = config.SCHEDULER_SECRET
     if not expected_secret:
         raise HTTPException(status_code=500, detail="SCHEDULER_SECRET environment variable is not configured on the server.")
         
@@ -328,7 +329,7 @@ def get_crop_stages(crop_id: int, db: Session = Depends(get_db)):
     return db.execute(stmt).scalars().all()
 
 def handle_advisories(req: AdvisoryRequest, db: Session, provider_name: Optional[str] = None):
-    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+    provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
     try:
         # Check cache / ensure weather data exists for the coordinates
         # We invoke get_or_create_forecast to trigger download/load of GRIB if missing

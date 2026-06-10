@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from backend.database.models import WeatherDaily, CropStageRule, CropStage, Crop
+from backend import config
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class AdvisoryEngine:
         lat_grid = round(latitude * 4) / 4
         lon_grid = round(longitude * 4) / 4
         
-        provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+        provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
         
         # 1. Fetch 10-day daily weather forecasts
         stmt_weather = select(WeatherDaily).where(

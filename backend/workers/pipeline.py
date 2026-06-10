@@ -13,31 +13,32 @@ from backend.ingestion.parser import GRIBParser
 from backend.workers.transform import WeatherComputation
 from backend.workers import calculations
 from backend.workers.providers.factory import WeatherProviderFactory
+from backend import config
 
 logger = logging.getLogger(__name__)
 
 # Severity mapping for choosing dominant daily weather code
 WEATHER_SEVERITY = {
-    "THUNDER": 8,
-    "RAIN": 7,
-    "SNOW": 6,
-    "FOG": 5,
-    "WINDY": 4,
-    "CLOUDY": 3,
-    "PARTLY_CLOUDY": 2,
-    "CLEAR": 1
+    "HEAVY_RAIN": 6,
+    "RAIN": 5,
+    "SHOWER": 4,
+    "HEAVY_SNOW": 3,
+    "SNOW": 2,
+    "STORM": 1,
+    "PARTLY_CLOUDY": 0,
+    "CLEAR": -1,
 }
 
 class WeatherPipeline:
     """
-    Orchestrates the ingestion, GRIB parsing, transformations,
-    and database storage.
+    Orchestrates the conversion of GRIB/NetCDF files into structured database forecasts.
+    Runs spatial interpolation, temporal hourly interpolation, calculations, and saves daily summaries.
     """
     
     def __init__(self, db: Session, storage_dir: Optional[str] = None, provider_name: Optional[str] = None):
         self.db = db
         self.downloader = ECMWFDownloader(storage_dir=storage_dir)
-        self.provider_name = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+        self.provider_name = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
 
     def get_latest_successful_cycle(self) -> Optional[datetime]:
         """

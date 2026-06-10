@@ -10,6 +10,7 @@ from sqlalchemy import text
 from backend.database.connection import get_db
 from backend.database.init import init_db
 from backend.api.routes import router as weather_router
+from backend import config
 
 # Setup structured logging
 logging.basicConfig(
@@ -67,7 +68,7 @@ def health_check(db: Session = Depends(get_db)):
         return {
             "status": "healthy",
             "database": "connected",
-            "environment": os.getenv("ENVIRONMENT", "production")
+            "environment": config.ENVIRONMENT
         }
     except Exception as e:
         logger.error(f"Healthcheck failed: {e}")
