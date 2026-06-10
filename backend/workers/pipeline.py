@@ -12,6 +12,7 @@ from backend.ingestion.downloader import ECMWFDownloader
 from backend.ingestion.parser import GRIBParser
 from backend.workers.transform import WeatherComputation
 from backend.workers import calculations
+from backend.workers.providers.factory import WeatherProviderFactory
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +65,12 @@ class WeatherPipeline:
         # 1. Determine target cycle time
         latest_cycle_dt = self.get_latest_successful_cycle()
         
+        # Get active provider
+        provider = WeatherProviderFactory.get_provider(os.getenv("WEATHER_DATA_PROVIDER", "ecmwf"))
+        
         # If no cycle has run, calculate what should be available and trigger download
         if not latest_cycle_dt:
-            run_date, run_hour = self.downloader.get_latest_available_cycle()
-            latest_cycle_dt = datetime.combine(run_date, datetime.min.time()) + timedelta(hours=run_hour)
-            latest_cycle_dt = latest_cycle_dt.replace(tzinfo=timezone.utc)
+            latest_cycle_dt = provider.get_latest_available_cycle(datetime.now(timezone.utc))
             
         logger.info(f"Checking database for grid point ({lat_grid}, {lon_grid}) at cycle {latest_cycle_dt}")
         
@@ -91,12 +93,12 @@ class WeatherPipeline:
         logger.info(f"Database cache MISS for grid point ({lat_grid}, {lon_grid}). Extracting from GRIB...")
         
         # Ensure we have the latest GRIB file
-        target_path = self.downloader.get_target_path(latest_cycle_dt.date(), latest_cycle_dt.hour)
+        target_path = provider.get_target_path(latest_cycle_dt)
         
-        if not os.path.exists(target_path) or not self.downloader.use_local_storage:
+        if not os.path.exists(target_path) or not provider.downloader.use_local_storage:
             logger.info("Downloading GRIB file (either missing locally or cloud‑only mode).")
             # If direct on-the-fly downloads are disabled, check database for fallback cycle immediately
-            if not self.downloader.allow_on_the_fly_downloads and self.downloader.use_local_storage:
+            if not provider.downloader.allow_on_the_fly_downloads and provider.downloader.use_local_storage:
                 logger.info("On-the-fly downloads are disabled and local storage is in use. Looking for fallback cycle in database...")
                 db_forecasts, fallback_cycle_dt = self._get_latest_fallback_forecast(lat_grid, lon_grid)
                 if db_forecasts:
@@ -112,7 +114,7 @@ class WeatherPipeline:
             self.db.commit()
             
             try:
-                path, checksum, size = self.downloader.download_cycle(latest_cycle_dt.date(), latest_cycle_dt.hour)
+                path, checksum, size = provider.download_cycle(latest_cycle_dt)
                 # Register raw file
                 raw_file = WeatherRawFile(
                     job_id=job.id,
@@ -143,13 +145,7 @@ class WeatherPipeline:
                 raise RuntimeError(f"Could not download GRIB file for cycle {latest_cycle_dt} and no fallback data exists: {e}")
                 
         # Parse GRIB file and extract data for this coordinate
-        parser = GRIBParser(target_path)
-        try:
-            raw_df = parser.extract_point_data(lat_grid, lon_grid)
-            # Interpolate to hourly
-            hourly_df = parser.interpolate_to_hourly(raw_df)
-        finally:
-            parser.close()
+        hourly_df = provider.extract_and_interpolate(target_path, lat_grid, lon_grid)
             
         # Run derived weather computations
         hourly_records = []

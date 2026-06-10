@@ -8,6 +8,7 @@ from backend.database.connection import SessionLocal
 from backend.database.init import init_db
 from backend.database.models import WeatherJob, WeatherRawFile, WeatherForecast, WeatherDaily
 from backend.ingestion.downloader import ECMWFDownloader
+from backend.workers.providers.factory import WeatherProviderFactory
 
 # Configure logging
 logging.basicConfig(
@@ -31,12 +32,12 @@ class WeatherScheduler:
         """Runs a single iteration of the scheduler checks."""
         db = SessionLocal()
         try:
+            # Get active provider
+            provider = WeatherProviderFactory.get_provider(os.getenv("WEATHER_DATA_PROVIDER", "ecmwf"))
+            
             # 1. Determine the latest expected cycle
             current_time = datetime.now(timezone.utc)
-            cycle_date, cycle_hour = self.downloader.get_latest_available_cycle(current_time)
-            
-            # Combine to datetime representing cycle start
-            cycle_dt = datetime.combine(cycle_date, datetime.min.time()) + timedelta(hours=cycle_hour)
+            cycle_dt = provider.get_latest_available_cycle(current_time)
             logger.info(f"Target forecast cycle to check: {cycle_dt.strftime('%Y-%m-%d %H:00')} UTC")
             
             # 2. Check if this cycle is already successfully processed or currently running
@@ -63,16 +64,18 @@ class WeatherScheduler:
             db.close()
 
     def _process_cycle(self, db, cycle_dt: datetime):
-        """Downloads and registers the raw GRIB file for the given cycle."""
+        """Downloads and registers the raw file for the given cycle."""
         # Create Job entry
         job = WeatherJob(cycle_time=cycle_dt, status="RUNNING")
         db.add(job)
         db.commit()
         
         try:
-            # Download GRIB
-            # Standard ECMWF Open Data retrieval
-            target_path, checksum, file_size = self.downloader.download_cycle(cycle_dt.date(), cycle_dt.hour)
+            # Get active provider
+            provider = WeatherProviderFactory.get_provider(os.getenv("WEATHER_DATA_PROVIDER", "ecmwf"))
+            
+            # Download cycle GRIB/NetCDF
+            target_path, checksum, file_size = provider.download_cycle(cycle_dt)
             
             # Register Raw File
             raw_file = WeatherRawFile(
