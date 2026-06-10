@@ -1,4 +1,5 @@
 import os
+import uuid
 import hashlib
 import logging
 import threading
@@ -170,7 +171,7 @@ class ECMWFDownloader:
             
             try:
                 # Retrieve only step 240 to verify the cycle is 100% complete (10-day forecast)
-                check_target = os.path.join(self.storage_dir, ".check.grib2")
+                check_target = os.path.join(self.storage_dir, f".check_{uuid.uuid4().hex}.grib2")
                 self.client.retrieve(
                     date=date_str,
                     time=cycle_hour,
