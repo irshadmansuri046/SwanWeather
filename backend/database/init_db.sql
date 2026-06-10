@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS weather_jobs (
     cycle_time TIMESTAMP WITH TIME ZONE NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     error_message TEXT,
+    provider VARCHAR(20) NOT NULL DEFAULT 'ecmwf',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -22,6 +23,7 @@ CREATE TABLE IF NOT EXISTS weather_raw_files (
     file_path VARCHAR(255) NOT NULL,
     file_size BIGINT NOT NULL,
     checksum VARCHAR(64) NOT NULL,
+    provider VARCHAR(20) NOT NULL DEFAULT 'ecmwf',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -31,6 +33,7 @@ CREATE TABLE IF NOT EXISTS weather_forecast (
     longitude NUMERIC(5, 2) NOT NULL,
     forecast_time TIMESTAMP WITH TIME ZONE NOT NULL,
     cycle_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    provider VARCHAR(20) NOT NULL DEFAULT 'ecmwf',
     
     temperature NUMERIC(5, 2) NOT NULL,
     feels_like NUMERIC(5, 2) NOT NULL,
@@ -46,7 +49,7 @@ CREATE TABLE IF NOT EXISTS weather_forecast (
     weather_code VARCHAR(30) NOT NULL,
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    PRIMARY KEY (latitude, longitude, forecast_time)
+    PRIMARY KEY (latitude, longitude, forecast_time, provider)
 ) PARTITION BY RANGE (forecast_time);
 
 -- Create DEFAULT partition for weather_forecast to prevent insertion crashes
@@ -54,7 +57,7 @@ CREATE TABLE IF NOT EXISTS weather_forecast_default PARTITION OF weather_forecas
 
 -- Indexes for fast query retrieval
 CREATE INDEX IF NOT EXISTS idx_weather_forecast_lat_lon_time 
-ON weather_forecast(latitude, longitude, forecast_time DESC);
+ON weather_forecast(latitude, longitude, forecast_time DESC, provider);
 
 -- 4. Weather Daily Summaries (10-day forecasts)
 CREATE TABLE IF NOT EXISTS weather_daily (
@@ -62,6 +65,7 @@ CREATE TABLE IF NOT EXISTS weather_daily (
     longitude NUMERIC(5, 2) NOT NULL,
     forecast_date DATE NOT NULL,
     cycle_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    provider VARCHAR(20) NOT NULL DEFAULT 'ecmwf',
     
     temp_min NUMERIC(5, 2) NOT NULL,
     temp_max NUMERIC(5, 2) NOT NULL,
@@ -72,11 +76,11 @@ CREATE TABLE IF NOT EXISTS weather_daily (
     
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    PRIMARY KEY (latitude, longitude, forecast_date)
+    PRIMARY KEY (latitude, longitude, forecast_date, provider)
 );
 
 CREATE INDEX IF NOT EXISTS idx_weather_daily_lat_lon_date 
-ON weather_daily(latitude, longitude, forecast_date DESC);
+ON weather_daily(latitude, longitude, forecast_date DESC, provider);
 
 -- 5. API Response Cache
 CREATE TABLE IF NOT EXISTS api_cache (

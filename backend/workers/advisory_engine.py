@@ -1,7 +1,7 @@
 import logging
 import operator
 from decimal import Decimal
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from backend.database.models import WeatherDaily, CropStageRule, CropStage, Crop
@@ -18,7 +18,7 @@ OPERATOR_MAP = {
 
 class AdvisoryEngine:
     @staticmethod
-    def evaluate_rules(db: Session, latitude: float, longitude: float, crop_stage_pairs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def evaluate_rules(db: Session, latitude: float, longitude: float, crop_stage_pairs: List[Dict[str, Any]], provider_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Evaluates the 10-day daily weather forecasts against the rules for specific crop stages.
         
@@ -27,6 +27,7 @@ class AdvisoryEngine:
             latitude (float): Location latitude.
             longitude (float): Location longitude.
             crop_stage_pairs (list): List of dicts, e.g. [{"crop_id": 1, "stage_id": 2}, ...]
+            provider_name (str, optional): The weather provider (ecmwf or imd) to use.
             
         Returns:
             list: List of generated advisories grouped by date, crop, and stage.
@@ -35,15 +36,18 @@ class AdvisoryEngine:
         lat_grid = round(latitude * 4) / 4
         lon_grid = round(longitude * 4) / 4
         
+        provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+        
         # 1. Fetch 10-day daily weather forecasts
         stmt_weather = select(WeatherDaily).where(
             WeatherDaily.latitude == lat_grid,
-            WeatherDaily.longitude == lon_grid
+            WeatherDaily.longitude == lon_grid,
+            WeatherDaily.provider == provider
         ).order_by(WeatherDaily.forecast_date.asc())
         daily_forecasts = db.execute(stmt_weather).scalars().all()
         
         if not daily_forecasts:
-            logger.warning(f"No weather daily forecast found for ({lat_grid}, {lon_grid}) in database.")
+            logger.warning(f"No weather daily forecast found for ({lat_grid}, {lon_grid}) in database under provider {provider}.")
             return []
             
         advisories = []

@@ -162,3 +162,29 @@ def test_trigger_scheduler_run_unauthorized(mock_scheduler_class, override_db, m
     
     assert response.status_code == 403
     assert "Forbidden" in response.json()["detail"]
+
+@patch("backend.api.routes.WeatherPipeline")
+def test_get_imd_full_weather(mock_pipeline_class, mock_db, override_db):
+    mock_pipeline = MagicMock()
+    mock_pipeline.get_or_create_forecast.return_value = MOCK_WEATHER_RESPONSE
+    mock_pipeline_class.return_value = mock_pipeline
+    
+    response = client.get("/weather/imd/full?latitude=19.0&longitude=73.0")
+    
+    assert response.status_code == 200
+    json_data = response.json()
+    assert json_data["latitude"] == 19.0
+    mock_pipeline_class.assert_called_once_with(mock_db, provider_name="imd")
+
+@patch("backend.api.routes.WeatherPipeline")
+def test_get_imd_current_weather(mock_pipeline_class, mock_db, override_db):
+    mock_pipeline = MagicMock()
+    mock_pipeline.get_or_create_forecast.return_value = MOCK_WEATHER_RESPONSE
+    mock_pipeline_class.return_value = mock_pipeline
+    
+    response = client.get("/weather/imd/current?latitude=19.0&longitude=73.0")
+    
+    assert response.status_code == 200
+    json_data = response.json()
+    assert json_data["temperature_2m"] == 28.5
+    mock_pipeline_class.assert_called_once_with(mock_db, provider_name="imd")

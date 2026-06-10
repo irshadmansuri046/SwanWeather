@@ -11,6 +11,7 @@ class ECMWFProvider(BaseWeatherProvider):
 
     def __init__(self, downloader: ECMWFDownloader = None):
         self.downloader = downloader or ECMWFDownloader()
+        self.name = "ecmwf"
 
     def get_latest_available_cycle(self, current_time: datetime) -> datetime:
         cycle_date, cycle_hour = self.downloader.get_latest_available_cycle(current_time)

@@ -10,6 +10,7 @@ class WeatherJob(Base):
     cycle_time = Column(DateTime(timezone=True), nullable=False)
     status = Column(String(20), nullable=False, default="PENDING")  # PENDING, RUNNING, SUCCESS, FAILED
     error_message = Column(Text, nullable=True)
+    provider = Column(String(20), nullable=False, default="ecmwf")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -22,18 +23,20 @@ class WeatherRawFile(Base):
     file_path = Column(String(255), nullable=False)
     file_size = Column(BigInteger, nullable=False)
     checksum = Column(String(64), nullable=False)
+    provider = Column(String(20), nullable=False, default="ecmwf")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class WeatherForecast(Base):
     __tablename__ = "weather_forecast"
     __table_args__ = (
-        Index("idx_weather_forecast_lat_lon_time", "latitude", "longitude", "forecast_time"),
+        Index("idx_weather_forecast_lat_lon_time", "latitude", "longitude", "forecast_time", "provider"),
         {"postgresql_partition_by": "RANGE (forecast_time)"}
     )
     
     latitude = Column(Numeric(5, 2), primary_key=True, nullable=False)  # Part of primary key due to partitioning constraints
     longitude = Column(Numeric(5, 2), primary_key=True, nullable=False)
     forecast_time = Column(DateTime(timezone=True), primary_key=True, nullable=False)
+    provider = Column(String(20), primary_key=True, nullable=False, default="ecmwf")
     cycle_time = Column(DateTime(timezone=True), nullable=False)
     
     temperature = Column(Numeric(5, 2), nullable=False)
@@ -54,12 +57,13 @@ class WeatherForecast(Base):
 class WeatherDaily(Base):
     __tablename__ = "weather_daily"
     __table_args__ = (
-        Index("idx_weather_daily_lat_lon_date", "latitude", "longitude", "forecast_date"),
+        Index("idx_weather_daily_lat_lon_date", "latitude", "longitude", "forecast_date", "provider"),
     )
     
     latitude = Column(Numeric(5, 2), primary_key=True, nullable=False)
     longitude = Column(Numeric(5, 2), primary_key=True, nullable=False)
     forecast_date = Column(Date, primary_key=True, nullable=False)
+    provider = Column(String(20), primary_key=True, nullable=False, default="ecmwf")
     cycle_time = Column(DateTime(timezone=True), nullable=False)
     
     temp_min = Column(Numeric(5, 2), nullable=False)

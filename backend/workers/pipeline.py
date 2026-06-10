@@ -34,9 +34,10 @@ class WeatherPipeline:
     and database storage.
     """
     
-    def __init__(self, db: Session, storage_dir: Optional[str] = None):
+    def __init__(self, db: Session, storage_dir: Optional[str] = None, provider_name: Optional[str] = None):
         self.db = db
         self.downloader = ECMWFDownloader(storage_dir=storage_dir)
+        self.provider_name = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
 
     def get_latest_successful_cycle(self) -> Optional[datetime]:
         """
@@ -44,7 +45,12 @@ class WeatherPipeline:
         Falls back to detecting from the downloader if database is empty.
         """
         # Query database for latest successful job
-        stmt = select(WeatherJob).where(WeatherJob.status == "SUCCESS").order_by(WeatherJob.cycle_time.desc()).limit(1)
+        stmt = select(WeatherJob).where(
+            and_(
+                WeatherJob.status == "SUCCESS",
+                WeatherJob.provider == self.provider_name
+            )
+        ).order_by(WeatherJob.cycle_time.desc()).limit(1)
         job = self.db.execute(stmt).scalars().first()
         if job:
             if job.cycle_time.tzinfo is None:
@@ -66,7 +72,7 @@ class WeatherPipeline:
         latest_cycle_dt = self.get_latest_successful_cycle()
         
         # Get active provider
-        provider = WeatherProviderFactory.get_provider(os.getenv("WEATHER_DATA_PROVIDER", "ecmwf"))
+        provider = WeatherProviderFactory.get_provider(self.provider_name)
         
         # If no cycle has run, calculate what should be available and trigger download
         if not latest_cycle_dt:
@@ -79,7 +85,8 @@ class WeatherPipeline:
             and_(
                 WeatherForecast.latitude == lat_grid,
                 WeatherForecast.longitude == lon_grid,
-                WeatherForecast.cycle_time == latest_cycle_dt
+                WeatherForecast.cycle_time == latest_cycle_dt,
+                WeatherForecast.provider == self.provider_name
             )
         ).order_by(WeatherForecast.forecast_time.asc())
         
@@ -109,7 +116,7 @@ class WeatherPipeline:
 
             logger.info(f"GRIB file not found locally. Downloading cycle {latest_cycle_dt}...")
             # Register job in DB
-            job = WeatherJob(cycle_time=latest_cycle_dt, status="RUNNING")
+            job = WeatherJob(cycle_time=latest_cycle_dt, status="RUNNING", provider=self.provider_name)
             self.db.add(job)
             self.db.commit()
             
@@ -121,7 +128,8 @@ class WeatherPipeline:
                     cycle_time=latest_cycle_dt,
                     file_path=path,
                     file_size=size,
-                    checksum=checksum
+                    checksum=checksum,
+                    provider=self.provider_name
                 )
                 self.db.add(raw_file)
                 job.status = "SUCCESS"
@@ -168,6 +176,7 @@ class WeatherPipeline:
                 "longitude": lon_grid,
                 "forecast_time": f_time,
                 "cycle_time": latest_cycle_dt,
+                "provider": self.provider_name,
                 "temperature": temp,
                 "feels_like": feels_like,
                 "precipitation": precip,
@@ -188,7 +197,8 @@ class WeatherPipeline:
             delete(WeatherForecast).where(
                 and_(
                     WeatherForecast.latitude == lat_grid,
-                    WeatherForecast.longitude == lon_grid
+                    WeatherForecast.longitude == lon_grid,
+                    WeatherForecast.provider == self.provider_name
                 )
             )
         )
@@ -203,7 +213,8 @@ class WeatherPipeline:
             delete(WeatherDaily).where(
                 and_(
                     WeatherDaily.latitude == lat_grid,
-                    WeatherDaily.longitude == lon_grid
+                    WeatherDaily.longitude == lon_grid,
+                    WeatherDaily.provider == self.provider_name
                 )
             )
         )
@@ -239,6 +250,7 @@ class WeatherPipeline:
                 "longitude": lon,
                 "forecast_date": forecast_date,
                 "cycle_time": cycle_time,
+                "provider": self.provider_name,
                 "temp_min": float(group["temperature"].min()),
                 "temp_max": float(group["temperature"].max()),
                 "precipitation": float(group["precipitation"].sum()),
@@ -258,7 +270,8 @@ class WeatherPipeline:
             and_(
                 WeatherDaily.latitude == lat,
                 WeatherDaily.longitude == lon,
-                WeatherDaily.cycle_time == cycle_time
+                WeatherDaily.cycle_time == cycle_time,
+                WeatherDaily.provider == self.provider_name
             )
         ).order_by(WeatherDaily.forecast_date.asc())
         
@@ -346,7 +359,8 @@ class WeatherPipeline:
         stmt = select(WeatherForecast.cycle_time).where(
             and_(
                 WeatherForecast.latitude == lat,
-                WeatherForecast.longitude == lon
+                WeatherForecast.longitude == lon,
+                WeatherForecast.provider == self.provider_name
             )
         ).order_by(WeatherForecast.cycle_time.desc()).limit(1)
         
@@ -359,7 +373,8 @@ class WeatherPipeline:
             and_(
                 WeatherForecast.latitude == lat,
                 WeatherForecast.longitude == lon,
-                WeatherForecast.cycle_time == fallback_cycle
+                WeatherForecast.cycle_time == fallback_cycle,
+                WeatherForecast.provider == self.provider_name
             )
         ).order_by(WeatherForecast.forecast_time.asc())
         
@@ -380,7 +395,8 @@ class WeatherPipeline:
         stmt = select(WeatherForecast.cycle_time).where(
             and_(
                 WeatherForecast.latitude == lat_grid,
-                WeatherForecast.longitude == lon_grid
+                WeatherForecast.longitude == lon_grid,
+                WeatherForecast.provider == self.provider_name
             )
         ).order_by(WeatherForecast.cycle_time.desc()).limit(1)
         cycle_time = self.db.execute(stmt).scalars().first()
@@ -393,7 +409,8 @@ class WeatherPipeline:
             and_(
                 WeatherForecast.latitude == lat_grid,
                 WeatherForecast.longitude == lon_grid,
-                WeatherForecast.cycle_time == cycle_time
+                WeatherForecast.cycle_time == cycle_time,
+                WeatherForecast.provider == self.provider_name
             )
         ).order_by(WeatherForecast.forecast_time.asc())
         db_forecasts = self.db.execute(hourly_stmt).scalars().all()
@@ -403,7 +420,8 @@ class WeatherPipeline:
             and_(
                 WeatherDaily.latitude == lat_grid,
                 WeatherDaily.longitude == lon_grid,
-                WeatherDaily.cycle_time == cycle_time
+                WeatherDaily.cycle_time == cycle_time,
+                WeatherDaily.provider == self.provider_name
             )
         ).order_by(WeatherDaily.forecast_date.asc())
         db_dailies = self.db.execute(daily_stmt).scalars().all()

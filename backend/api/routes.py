@@ -61,6 +61,25 @@ def handle_pipeline_exception(e: Exception):
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {err_msg}")
 
 
+def handle_full_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
+    lat_grid = round(latitude * 4) / 4
+    lon_grid = round(longitude * 4) / 4
+    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+    cache_key = f"weather_full_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
+    
+    cached = get_cached_response(db, cache_key)
+    if cached:
+        return cached
+        
+    try:
+        pipeline = WeatherPipeline(db, provider_name=provider)
+        data = pipeline.get_or_create_forecast(latitude, longitude)
+        set_cached_response(db, cache_key, data)
+        return data
+    except Exception as e:
+        logger.error(f"Error handling full weather query ({provider}): {e}", exc_info=True)
+        handle_pipeline_exception(e)
+
 @router.get("/full", response_model=WeatherFullResponse)
 def get_full_weather(
     latitude: float = Query(..., ge=-90.0, le=90.0, description="Latitude of the location"),
@@ -69,29 +88,41 @@ def get_full_weather(
 ):
     """
     Returns the complete weather forecast package (Current, Hourly, and 10-day Daily forecast)
-    for the nearest grid point.
+    for the nearest grid point using the default provider.
     """
-    # Round to nearest 0.25 to align with grid caching
+    return handle_full_weather(latitude, longitude, db)
+
+@router.get("/imd/full", response_model=WeatherFullResponse)
+def get_imd_full_weather(
+    latitude: float = Query(..., ge=-90.0, le=90.0, description="Latitude of the location"),
+    longitude: float = Query(..., ge=-180.0, le=180.0, description="Longitude of the location"),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the complete weather forecast package (Current, Hourly, and 10-day Daily forecast)
+    for the nearest grid point using the IMD provider.
+    """
+    return handle_full_weather(latitude, longitude, db, provider_name="imd")
+
+
+def handle_current_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
     lat_grid = round(latitude * 4) / 4
     lon_grid = round(longitude * 4) / 4
+    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+    cache_key = f"weather_current_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
     
-    cache_key = f"weather_full_{lat_grid:.2f}_{lon_grid:.2f}"
-    
-    # Try reading from HTTP Response Cache
     cached = get_cached_response(db, cache_key)
     if cached:
         return cached
         
     try:
-        pipeline = WeatherPipeline(db)
+        pipeline = WeatherPipeline(db, provider_name=provider)
         data = pipeline.get_or_create_forecast(latitude, longitude)
-        
-        # Save to HTTP Response Cache
-        set_cached_response(db, cache_key, data)
-        
-        return data
+        current_data = data["current"]
+        set_cached_response(db, cache_key, current_data)
+        return current_data
     except Exception as e:
-        logger.error(f"Error handling full weather query: {e}", exc_info=True)
+        logger.error(f"Error handling current weather query ({provider}): {e}", exc_info=True)
         handle_pipeline_exception(e)
 
 @router.get("/current", response_model=WeatherCurrentDTO)
@@ -100,24 +131,37 @@ def get_current_weather(
     longitude: float = Query(..., ge=-180.0, le=180.0),
     db: Session = Depends(get_db)
 ):
-    """Returns the current weather conditions for the location."""
+    """Returns the current weather conditions for the location using the default provider."""
+    return handle_current_weather(latitude, longitude, db)
+
+@router.get("/imd/current", response_model=WeatherCurrentDTO)
+def get_imd_current_weather(
+    latitude: float = Query(..., ge=-90.0, le=90.0),
+    longitude: float = Query(..., ge=-180.0, le=180.0),
+    db: Session = Depends(get_db)
+):
+    """Returns the current weather conditions for the location using the IMD provider."""
+    return handle_current_weather(latitude, longitude, db, provider_name="imd")
+
+
+def handle_hourly_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
     lat_grid = round(latitude * 4) / 4
     lon_grid = round(longitude * 4) / 4
-    cache_key = f"weather_current_{lat_grid:.2f}_{lon_grid:.2f}"
+    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+    cache_key = f"weather_hourly_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
     
     cached = get_cached_response(db, cache_key)
     if cached:
         return cached
         
     try:
-        pipeline = WeatherPipeline(db)
+        pipeline = WeatherPipeline(db, provider_name=provider)
         data = pipeline.get_or_create_forecast(latitude, longitude)
-        current_data = data["current"]
-        
-        set_cached_response(db, cache_key, current_data)
-        return current_data
+        hourly_data = data["hourly"]
+        set_cached_response(db, cache_key, hourly_data)
+        return hourly_data
     except Exception as e:
-        logger.error(f"Error handling current weather query: {e}", exc_info=True)
+        logger.error(f"Error handling hourly weather query ({provider}): {e}", exc_info=True)
         handle_pipeline_exception(e)
 
 @router.get("/hourly", response_model=WeatherHourlyResponse)
@@ -126,24 +170,37 @@ def get_hourly_forecast(
     longitude: float = Query(..., ge=-180.0, le=180.0),
     db: Session = Depends(get_db)
 ):
-    """Returns the hourly forecast for the next 24 hours."""
+    """Returns the hourly forecast for the next 24 hours using the default provider."""
+    return handle_hourly_weather(latitude, longitude, db)
+
+@router.get("/imd/hourly", response_model=WeatherHourlyResponse)
+def get_imd_hourly_forecast(
+    latitude: float = Query(..., ge=-90.0, le=90.0),
+    longitude: float = Query(..., ge=-180.0, le=180.0),
+    db: Session = Depends(get_db)
+):
+    """Returns the hourly forecast for the next 24 hours using the IMD provider."""
+    return handle_hourly_weather(latitude, longitude, db, provider_name="imd")
+
+
+def handle_daily_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
     lat_grid = round(latitude * 4) / 4
     lon_grid = round(longitude * 4) / 4
-    cache_key = f"weather_hourly_{lat_grid:.2f}_{lon_grid:.2f}"
+    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+    cache_key = f"weather_daily_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
     
     cached = get_cached_response(db, cache_key)
     if cached:
         return cached
         
     try:
-        pipeline = WeatherPipeline(db)
+        pipeline = WeatherPipeline(db, provider_name=provider)
         data = pipeline.get_or_create_forecast(latitude, longitude)
-        hourly_data = data["hourly"]
-        
-        set_cached_response(db, cache_key, hourly_data)
-        return hourly_data
+        daily_data = data["daily"]
+        set_cached_response(db, cache_key, daily_data)
+        return daily_data
     except Exception as e:
-        logger.error(f"Error handling hourly weather query: {e}", exc_info=True)
+        logger.error(f"Error handling daily weather query ({provider}): {e}", exc_info=True)
         handle_pipeline_exception(e)
 
 @router.get("/daily", response_model=WeatherDailyResponse)
@@ -152,61 +209,46 @@ def get_daily_forecast(
     longitude: float = Query(..., ge=-180.0, le=180.0),
     db: Session = Depends(get_db)
 ):
-    """Returns the daily forecast for the next 10 days."""
-    lat_grid = round(latitude * 4) / 4
-    lon_grid = round(longitude * 4) / 4
-    cache_key = f"weather_daily_{lat_grid:.2f}_{lon_grid:.2f}"
-    
-    cached = get_cached_response(db, cache_key)
-    if cached:
-        return cached
-        
-    try:
-        pipeline = WeatherPipeline(db)
-        data = pipeline.get_or_create_forecast(latitude, longitude)
-        daily_data = data["daily"]
-        
-        set_cached_response(db, cache_key, daily_data)
-        return daily_data
-    except Exception as e:
-        logger.error(f"Error handling daily weather query: {e}", exc_info=True)
-        handle_pipeline_exception(e)
+    """Returns the daily forecast for the next 10 days using the default provider."""
+    return handle_daily_weather(latitude, longitude, db)
 
-@router.post("/custom", response_model=WeatherCustomResponse)
-def get_custom_weather(
-    req: CustomWeatherRequest,
+@router.get("/imd/daily", response_model=WeatherDailyResponse)
+def get_imd_daily_forecast(
+    latitude: float = Query(..., ge=-90.0, le=90.0),
+    longitude: float = Query(..., ge=-180.0, le=180.0),
     db: Session = Depends(get_db)
 ):
-    """
-    Returns the custom Meteomatics-style weather forecast package.
-    Optionally evaluates and merges crop stage advisories if crop_stages is provided.
-    """
+    """Returns the daily forecast for the next 10 days using the IMD provider."""
+    return handle_daily_weather(latitude, longitude, db, provider_name="imd")
+
+
+def handle_custom_weather(req: CustomWeatherRequest, db: Session, provider_name: Optional[str] = None):
     lat_grid = round(req.latitude * 4) / 4
     lon_grid = round(req.longitude * 4) / 4
-    
-    cache_key = f"weather_custom_{lat_grid:.2f}_{lon_grid:.2f}"
+    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
+    cache_key = f"weather_custom_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
     
     cached = get_cached_response(db, cache_key)
     if cached:
         custom_data = cached
     else:
         try:
-            pipeline = WeatherPipeline(db)
+            pipeline = WeatherPipeline(db, provider_name=provider)
             custom_data = pipeline.get_custom_forecast(req.latitude, req.longitude)
             set_cached_response(db, cache_key, custom_data)
         except Exception as e:
-            logger.error(f"Error handling custom weather query: {e}", exc_info=True)
+            logger.error(f"Error handling custom weather query ({provider}): {e}", exc_info=True)
             handle_pipeline_exception(e)
-            return
+            return None
             
     advisories = None
     if req.crop_stages:
         try:
             from backend.workers.advisory_engine import AdvisoryEngine
             pairs = [{"crop_id": cs.crop_id, "stage_id": cs.stage_id} for cs in req.crop_stages]
-            advisories = AdvisoryEngine.evaluate_rules(db, req.latitude, req.longitude, pairs)
+            advisories = AdvisoryEngine.evaluate_rules(db, req.latitude, req.longitude, pairs, provider_name=provider)
         except Exception as e:
-            logger.error(f"Error evaluating crop advisories in custom weather: {e}", exc_info=True)
+            logger.error(f"Error evaluating crop advisories in custom weather ({provider}): {e}", exc_info=True)
             advisories = []
             
     return {
@@ -215,6 +257,28 @@ def get_custom_weather(
         "data": custom_data["data"],
         "advisories": advisories
     }
+
+@router.post("/custom", response_model=WeatherCustomResponse)
+def get_custom_weather(
+    req: CustomWeatherRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the custom Meteomatics-style weather forecast package using the default provider.
+    Optionally evaluates and merges crop stage advisories if crop_stages is provided.
+    """
+    return handle_custom_weather(req, db)
+
+@router.post("/imd/custom", response_model=WeatherCustomResponse)
+def get_imd_custom_weather(
+    req: CustomWeatherRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Returns the custom Meteomatics-style weather forecast package using the IMD provider.
+    Optionally evaluates and merges crop stage advisories if crop_stages is provided.
+    """
+    return handle_custom_weather(req, db, provider_name="imd")
 
 from backend.workers.scheduler import WeatherScheduler
 
@@ -263,19 +327,28 @@ def get_crop_stages(crop_id: int, db: Session = Depends(get_db)):
     stmt = select(CropStage).where(CropStage.crop_id == crop_id).order_by(CropStage.stage_order.asc())
     return db.execute(stmt).scalars().all()
 
-@router.post("/advisory")
-def get_advisories(req: AdvisoryRequest, db: Session = Depends(get_db)):
-    """Evaluate weather forecast against crop rules and return alerts + advisories."""
+def handle_advisories(req: AdvisoryRequest, db: Session, provider_name: Optional[str] = None):
+    provider = (provider_name or os.getenv("WEATHER_DATA_PROVIDER", "ecmwf")).strip().lower()
     try:
         # Check cache / ensure weather data exists for the coordinates
         # We invoke get_or_create_forecast to trigger download/load of GRIB if missing
-        pipeline = WeatherPipeline(db)
+        pipeline = WeatherPipeline(db, provider_name=provider)
         pipeline.get_or_create_forecast(req.latitude, req.longitude)
         
         from backend.workers.advisory_engine import AdvisoryEngine
         pairs = [{"crop_id": cs.crop_id, "stage_id": cs.stage_id} for cs in req.crop_stages]
-        advisories = AdvisoryEngine.evaluate_rules(db, req.latitude, req.longitude, pairs)
+        advisories = AdvisoryEngine.evaluate_rules(db, req.latitude, req.longitude, pairs, provider_name=provider)
         return {"latitude": req.latitude, "longitude": req.longitude, "advisories": advisories}
     except Exception as e:
-        logger.error(f"Error evaluating crop advisories: {e}", exc_info=True)
+        logger.error(f"Error evaluating crop advisories ({provider}): {e}", exc_info=True)
         handle_pipeline_exception(e)
+
+@router.post("/advisory")
+def get_advisories(req: AdvisoryRequest, db: Session = Depends(get_db)):
+    """Evaluate weather forecast against crop rules and return alerts + advisories using the default provider."""
+    return handle_advisories(req, db)
+
+@router.post("/imd/advisory")
+def get_imd_advisories(req: AdvisoryRequest, db: Session = Depends(get_db)):
+    """Evaluate weather forecast against crop rules and return alerts + advisories using the IMD provider."""
+    return handle_advisories(req, db, provider_name="imd")

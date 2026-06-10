@@ -44,7 +44,8 @@ class WeatherScheduler:
             stmt = select(WeatherJob).where(
                 and_(
                     WeatherJob.cycle_time == cycle_dt,
-                    WeatherJob.status.in_(["SUCCESS", "RUNNING"])
+                    WeatherJob.status.in_(["SUCCESS", "RUNNING"]),
+                    WeatherJob.provider == provider.name
                 )
             )
             existing_job = db.execute(stmt).scalars().first()
@@ -65,15 +66,15 @@ class WeatherScheduler:
 
     def _process_cycle(self, db, cycle_dt: datetime):
         """Downloads and registers the raw file for the given cycle."""
+        # Get active provider
+        provider = WeatherProviderFactory.get_provider(os.getenv("WEATHER_DATA_PROVIDER", "ecmwf"))
+
         # Create Job entry
-        job = WeatherJob(cycle_time=cycle_dt, status="RUNNING")
+        job = WeatherJob(cycle_time=cycle_dt, status="RUNNING", provider=provider.name)
         db.add(job)
         db.commit()
         
         try:
-            # Get active provider
-            provider = WeatherProviderFactory.get_provider(os.getenv("WEATHER_DATA_PROVIDER", "ecmwf"))
-            
             # Download cycle GRIB/NetCDF
             target_path, checksum, file_size = provider.download_cycle(cycle_dt)
             
@@ -83,7 +84,8 @@ class WeatherScheduler:
                 cycle_time=cycle_dt,
                 file_path=target_path,
                 file_size=file_size,
-                checksum=checksum
+                checksum=checksum,
+                provider=provider.name
             )
             db.add(raw_file)
             
