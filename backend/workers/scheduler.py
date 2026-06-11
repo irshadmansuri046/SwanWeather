@@ -156,21 +156,25 @@ class WeatherScheduler:
             # Delete stale hourly forecasts
             forecast_deleted = db.execute(
                 delete(WeatherForecast).where(WeatherForecast.forecast_time < cutoff_dt)
+                .execution_options(synchronize_session=False)
             ).rowcount
             
             # Delete stale daily forecasts
             daily_deleted = db.execute(
                 delete(WeatherDaily).where(WeatherDaily.forecast_date < cutoff_date)
+                .execution_options(synchronize_session=False)
             ).rowcount
             
             # Delete stale raw file entries
             raw_files_deleted = db.execute(
                 delete(WeatherRawFile).where(WeatherRawFile.cycle_time < cutoff_dt)
+                .execution_options(synchronize_session=False)
             ).rowcount
             
             # Delete old jobs
             jobs_deleted = db.execute(
                 delete(WeatherJob).where(WeatherJob.cycle_time < cutoff_dt)
+                .execution_options(synchronize_session=False)
             ).rowcount
             
             db.commit()

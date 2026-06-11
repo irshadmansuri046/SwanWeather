@@ -283,7 +283,12 @@ class WeatherPipeline:
         current_pt = None
         
         # Sort by proximity to now
-        time_diffs = [abs((pt.forecast_time - now_utc).total_seconds()) for pt in db_forecasts]
+        time_diffs = []
+        for pt in db_forecasts:
+            f_time = pt.forecast_time
+            if f_time.tzinfo is None:
+                f_time = f_time.replace(tzinfo=timezone.utc)
+            time_diffs.append(abs((f_time - now_utc).total_seconds()))
         if time_diffs:
             min_idx = np.argmin(time_diffs)
             current_pt = db_forecasts[min_idx]

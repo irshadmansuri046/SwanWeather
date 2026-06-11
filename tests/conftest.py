@@ -1,5 +1,11 @@
-import pytest
 import os
+# Force DATABASE_URL to a safe local SQLite file for tests to prevent production DB pollution
+prod_db_url = os.getenv("DATABASE_URL")
+if prod_db_url and ("supabase.co" in prod_db_url or "pooler.supabase.com" in prod_db_url):
+    print("Warning: Overriding production DATABASE_URL to a safe SQLite database for testing.")
+os.environ["DATABASE_URL"] = "sqlite:///test_weather.db"
+
+import pytest
 from unittest.mock import MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -8,10 +14,8 @@ from backend.database.connection import Base
 from backend.database.init import init_db
 
 # Configure DATABASE_URL for testing
-TEST_DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    "postgresql://postgres:postgrespassword@localhost:5432/weatherdb"
-)
+TEST_DATABASE_URL = "sqlite:///test_weather.db"
+
 
 @pytest.fixture(scope="session")
 def db_engine():

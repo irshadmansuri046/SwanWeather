@@ -7,6 +7,14 @@ logger = logging.getLogger(__name__)
 
 def init_db():
     """Reads init_db.sql and executes it on the database connection."""
+    if engine.dialect.name == "sqlite":
+        logger.info("SQLite database detected. Creating schema via SQLAlchemy metadata.create_all...")
+        # Import models so that they are registered on Base.metadata
+        from backend.database import models
+        models.Base.metadata.create_all(bind=engine)
+        logger.info("Database schema initialized successfully.")
+        return
+
     sql_file_path = os.path.join(os.path.dirname(__file__), "init_db.sql")
     
     if not os.path.exists(sql_file_path):

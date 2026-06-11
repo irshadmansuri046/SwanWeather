@@ -4,13 +4,24 @@ from backend import config
 
 DATABASE_URL = config.DATABASE_URL
 
-# Create engine
+is_sqlite = DATABASE_URL.startswith("sqlite")
+
+engine_kwargs = {
+    "pool_pre_ping": True
+}
+
+if is_sqlite:
+    # SQLite configuration
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    # PostgreSQL configuration
+    engine_kwargs["pool_size"] = 10
+    engine_kwargs["max_overflow"] = 20
+    engine_kwargs["connect_args"] = {"connect_timeout": 10}
+
 engine = create_engine(
     DATABASE_URL,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
-    connect_args={"connect_timeout": 10}
+    **engine_kwargs
 )
 
 # Create SessionLocal class for database sessions
