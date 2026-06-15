@@ -20,15 +20,16 @@ def clean_db(db_session):
 @patch("backend.workers.scheduler.WeatherProviderFactory")
 def test_scheduler_run_once_both_providers(mock_factory, mock_downloader_class, mock_session_local, db_session):
     mock_session_local.return_value = db_session
-    # Mock providers
+    # Mock providers using a dynamic time to avoid pruning
+    recent_cycle = datetime.now(timezone.utc) - timedelta(hours=6)
     mock_ecmwf = MagicMock()
     mock_ecmwf.name = "ecmwf"
-    mock_ecmwf.get_latest_available_cycle.return_value = datetime(2026, 6, 10, 12, 0, tzinfo=timezone.utc)
+    mock_ecmwf.get_latest_available_cycle.return_value = recent_cycle
     mock_ecmwf.download_cycle.return_value = ("/data/ecmwf.nc", "hash1", 100)
     
     mock_imd = MagicMock()
     mock_imd.name = "imd"
-    mock_imd.get_latest_available_cycle.return_value = datetime(2026, 6, 10, 12, 0, tzinfo=timezone.utc)
+    mock_imd.get_latest_available_cycle.return_value = recent_cycle
     mock_imd.download_cycle.return_value = ("/data/imd.nc", "hash2", 100)
     
     mock_factory.get_provider.side_effect = lambda name: mock_ecmwf if name == "ecmwf" else mock_imd
@@ -192,15 +193,16 @@ def test_scheduler_run_once_both_providers_concurrent(mock_factory, mock_downloa
     proxy_session = ThreadSafeSessionProxy(db_session)
     mock_session_local.return_value = proxy_session
     
-    # Mock providers
+    # Mock providers using a dynamic time to avoid pruning
+    recent_cycle = datetime.now(timezone.utc) - timedelta(hours=6)
     mock_ecmwf = MagicMock()
     mock_ecmwf.name = "ecmwf"
-    mock_ecmwf.get_latest_available_cycle.return_value = datetime(2026, 6, 10, 12, 0, tzinfo=timezone.utc)
+    mock_ecmwf.get_latest_available_cycle.return_value = recent_cycle
     mock_ecmwf.download_cycle.return_value = ("/data/ecmwf.nc", "hash1", 100)
     
     mock_imd = MagicMock()
     mock_imd.name = "imd"
-    mock_imd.get_latest_available_cycle.return_value = datetime(2026, 6, 10, 12, 0, tzinfo=timezone.utc)
+    mock_imd.get_latest_available_cycle.return_value = recent_cycle
     mock_imd.download_cycle.return_value = ("/data/imd.nc", "hash2", 100)
     
     mock_factory.get_provider.side_effect = lambda name: mock_ecmwf if name == "ecmwf" else mock_imd

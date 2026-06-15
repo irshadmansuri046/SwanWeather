@@ -180,3 +180,85 @@ def test_pipeline_cache_miss_downloads_disabled_no_fallback(db_session, mock_ecm
         pipeline.get_or_create_forecast(lat, lon)
         
     assert "On-the-fly downloads are disabled" in str(exc_info.value)
+
+
+@pytest.mark.usefixtures("db_session")
+def test_pipeline_bilinear_interpolation_arbitrary_coords(db_session):
+    # Setup mock surrounding coordinates and cycle time
+    # (22.561296537, 88.344012536) falls in the box:
+    # y (lat) from 22.5 to 22.75, x (lon) from 88.25 to 88.5
+    cycle_dt = datetime(2026, 6, 2, 12, 0, tzinfo=timezone.utc)
+    
+    # Register successful job
+    job = WeatherJob(cycle_time=cycle_dt, status="SUCCESS", provider="ecmwf")
+    db_session.add(job)
+    
+    # Pre-populate forecast records for the 4 grid corners with different temperatures
+    corners = [
+        (22.5, 88.25, 20.0), # bottom-left
+        (22.5, 88.5, 24.0),  # bottom-right
+        (22.75, 88.25, 28.0), # top-left
+        (22.75, 88.5, 32.0)   # top-right
+    ]
+    
+    for c_lat, c_lon, temp in corners:
+        forecast = WeatherForecast(
+            latitude=c_lat,
+            longitude=c_lon,
+            forecast_time=cycle_dt,
+            cycle_time=cycle_dt,
+            provider="ecmwf",
+            temperature=temp,
+            feels_like=temp,
+            precipitation=0.0,
+            humidity=60.0,
+            pressure=1010.0,
+            cloud_cover=10.0,
+            wind_speed=2.0,
+            wind_direction=180.0,
+            dew_point=16.0,
+            uv_index=5.0,
+            visibility=10000.0,
+            weather_code="CLEAR"
+        )
+        db_session.add(forecast)
+        
+        # Add a Daily summary record to satisfy _build_interpolated_response
+        daily = WeatherDaily(
+            latitude=c_lat,
+            longitude=c_lon,
+            forecast_date=cycle_dt.date(),
+            cycle_time=cycle_dt,
+            provider="ecmwf",
+            temp_min=temp - 2,
+            temp_max=temp + 2,
+            precipitation=0.0,
+            humidity_avg=60.0,
+            wind_speed_max=2.0,
+            weather_code="CLEAR"
+        )
+        db_session.add(daily)
+        
+    db_session.commit()
+    
+    # Instantiate pipeline and trigger query (Cache Hit on all 4 corners)
+    pipeline = WeatherPipeline(db_session, provider_name="ecmwf")
+    
+    lat_query, lon_query = 22.561296537, 88.344012536
+    result = pipeline.get_or_create_forecast(lat_query, lon_query)
+    
+    # Check that requested coordinates are returned
+    assert result["latitude"] == lat_query
+    assert result["longitude"] == lon_query
+    
+    # Expected temperature is ~23.466
+    interpolated_temp = result["current"]["temperature_2m"]
+    assert abs(interpolated_temp - 23.4657) < 0.01
+    
+    # Check exact grid boundary case (exact grid line lat=22.5, arbitrary lon=88.344012536)
+    result_boundary = pipeline.get_or_create_forecast(22.5, lon_query)
+    assert result_boundary["latitude"] == 22.5
+    assert result_boundary["longitude"] == lon_query
+    # Expected linear interpolation between bottom-left (20.0) and bottom-right (24.0) at tx=0.376
+    # 20.0 + 4.0 * 0.376 = 21.504
+    assert abs(result_boundary["current"]["temperature_2m"] - 21.504) < 0.01

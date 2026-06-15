@@ -68,46 +68,56 @@ def test_pipeline_get_custom_forecast(db_session):
     job = WeatherJob(cycle_time=cycle_dt, status="SUCCESS")
     db_session.add(job)
     
-    # 2. Add 24 hours of forecast records
+    # Surrounding corners for (19.07, 72.88)
+    corners = [
+        (19.0, 72.75),
+        (19.0, 73.0),
+        (19.25, 72.75),
+        (19.25, 73.0)
+    ]
+    
+    # 2. Add 24 hours of forecast records for all 4 corners
     forecasts = []
-    for h in range(24):
-        f_time = cycle_dt + timedelta(hours=h)
-        forecasts.append(WeatherForecast(
-            latitude=LAT_GRID,
-            longitude=LON_GRID,
-            forecast_time=f_time,
-            cycle_time=cycle_dt,
-            temperature=25.0 + h * 0.1,
-            feels_like=26.0 + h * 0.1,
-            precipitation=0.1 if h % 6 == 0 else 0.0,
-            humidity=60.0,
-            pressure=1010.0,
-            cloud_cover=10.0,
-            wind_speed=2.0,
-            wind_direction=180.0,
-            dew_point=16.0,
-            uv_index=5.0,
-            visibility=10000.0,
-            weather_code="CLEAR"
-        ))
+    for c_lat, c_lon in corners:
+        for h in range(24):
+            f_time = cycle_dt + timedelta(hours=h)
+            forecasts.append(WeatherForecast(
+                latitude=c_lat,
+                longitude=c_lon,
+                forecast_time=f_time,
+                cycle_time=cycle_dt,
+                temperature=25.0 + h * 0.1,
+                feels_like=26.0 + h * 0.1,
+                precipitation=0.1 if h % 6 == 0 else 0.0,
+                humidity=60.0,
+                pressure=1010.0,
+                cloud_cover=10.0,
+                wind_speed=2.0,
+                wind_direction=180.0,
+                dew_point=16.0,
+                uv_index=5.0,
+                visibility=10000.0,
+                weather_code="CLEAR"
+            ))
     db_session.bulk_save_objects(forecasts)
     
-    # 3. Add 10 days of daily records
+    # 3. Add 10 days of daily records for all 4 corners
     dailies = []
-    for d in range(10):
-        f_date = cycle_dt.date() + timedelta(days=d)
-        dailies.append(WeatherDaily(
-            latitude=LAT_GRID,
-            longitude=LON_GRID,
-            forecast_date=f_date,
-            cycle_time=cycle_dt,
-            temp_min=20.0,
-            temp_max=30.0,
-            precipitation=0.5,
-            humidity_avg=60.0,
-            wind_speed_max=5.0,
-            weather_code="CLEAR"
-        ))
+    for c_lat, c_lon in corners:
+        for d in range(10):
+            f_date = cycle_dt.date() + timedelta(days=d)
+            dailies.append(WeatherDaily(
+                latitude=c_lat,
+                longitude=c_lon,
+                forecast_date=f_date,
+                cycle_time=cycle_dt,
+                temp_min=20.0,
+                temp_max=30.0,
+                precipitation=0.5,
+                humidity_avg=60.0,
+                wind_speed_max=5.0,
+                weather_code="CLEAR"
+            ))
     db_session.bulk_save_objects(dailies)
     db_session.commit()
     

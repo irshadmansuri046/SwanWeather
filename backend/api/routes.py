@@ -63,10 +63,8 @@ def handle_pipeline_exception(e: Exception):
 
 
 def handle_full_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
-    lat_grid = round(latitude * 4) / 4
-    lon_grid = round(longitude * 4) / 4
     provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
-    cache_key = f"weather_full_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
+    cache_key = f"weather_full_{provider}_{latitude:.4f}_{longitude:.4f}"
     
     cached = get_cached_response(db, cache_key)
     if cached:
@@ -107,10 +105,8 @@ def get_imd_full_weather(
 
 
 def handle_current_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
-    lat_grid = round(latitude * 4) / 4
-    lon_grid = round(longitude * 4) / 4
     provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
-    cache_key = f"weather_current_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
+    cache_key = f"weather_current_{provider}_{latitude:.4f}_{longitude:.4f}"
     
     cached = get_cached_response(db, cache_key)
     if cached:
@@ -146,10 +142,8 @@ def get_imd_current_weather(
 
 
 def handle_hourly_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
-    lat_grid = round(latitude * 4) / 4
-    lon_grid = round(longitude * 4) / 4
     provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
-    cache_key = f"weather_hourly_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
+    cache_key = f"weather_hourly_{provider}_{latitude:.4f}_{longitude:.4f}"
     
     cached = get_cached_response(db, cache_key)
     if cached:
@@ -185,10 +179,8 @@ def get_imd_hourly_forecast(
 
 
 def handle_daily_weather(latitude: float, longitude: float, db: Session, provider_name: Optional[str] = None):
-    lat_grid = round(latitude * 4) / 4
-    lon_grid = round(longitude * 4) / 4
     provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
-    cache_key = f"weather_daily_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
+    cache_key = f"weather_daily_{provider}_{latitude:.4f}_{longitude:.4f}"
     
     cached = get_cached_response(db, cache_key)
     if cached:
@@ -224,10 +216,8 @@ def get_imd_daily_forecast(
 
 
 def handle_custom_weather(req: CustomWeatherRequest, db: Session, provider_name: Optional[str] = None):
-    lat_grid = round(req.latitude * 4) / 4
-    lon_grid = round(req.longitude * 4) / 4
     provider = (provider_name or config.WEATHER_DATA_PROVIDER).strip().lower()
-    cache_key = f"weather_custom_{provider}_{lat_grid:.2f}_{lon_grid:.2f}"
+    cache_key = f"weather_custom_{provider}_{req.latitude:.4f}_{req.longitude:.4f}"
     
     cached = get_cached_response(db, cache_key)
     if cached:
