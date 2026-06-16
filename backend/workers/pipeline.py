@@ -463,11 +463,63 @@ class WeatherPipeline:
                 
         # 3. Ingest missing grid points
         if missing_points:
-            logger.info(f"Database cache MISS for grid points: {missing_points}. Extracting from GRIB...")
-            for g_lat, g_lon in missing_points:
-                try:
-                    self._ingest_grid_point(g_lat, g_lon, latest_cycle_dt, provider)
-                except Exception as e:
+            is_sqlite = (self.db.bind.dialect.name == "sqlite") if self.db.bind else False
+            
+            if is_sqlite:
+                logger.info(f"Database cache MISS for grid points: {missing_points}. Extracting from GRIB sequentially (SQLite database)...")
+                for g_lat, g_lon in missing_points:
+                    try:
+                        self._ingest_grid_point(g_lat, g_lon, latest_cycle_dt, provider)
+                    except Exception as e:
+                        # Fallback cycle check if downloads are disabled
+                        if not provider.downloader.allow_on_the_fly_downloads and provider.downloader.use_local_storage:
+                            logger.info("On-the-fly downloads are disabled. Looking for fallback cycle in database...")
+                            fallback_cycle_dt = self._get_latest_fallback_cycle(grid_points)
+                            if fallback_cycle_dt:
+                                # Re-query using fallback_cycle_dt
+                                hourly_stmt = select(WeatherForecast).where(
+                                    and_(
+                                        or_(*conditions),
+                                        WeatherForecast.cycle_time == fallback_cycle_dt,
+                                        WeatherForecast.provider == self.provider_name
+                                    )
+                                ).order_by(WeatherForecast.forecast_time.asc())
+                                db_forecasts = self.db.execute(hourly_stmt).scalars().all()
+                                latest_cycle_dt = fallback_cycle_dt
+                                
+                                forecasts_by_grid = {}
+                                for f in db_forecasts:
+                                    coord = (float(f.latitude), float(f.longitude))
+                                    forecasts_by_grid.setdefault(coord, []).append(f)
+                                # Mark missing points resolved via fallback
+                                missing_points = []
+                                break
+                        raise e
+            else:
+                logger.info(f"Database cache MISS for grid points: {missing_points}. Extracting from GRIB concurrently...")
+                
+                from concurrent.futures import ThreadPoolExecutor
+                from backend.database.connection import SessionLocal
+                
+                errors = []
+                
+                def ingest_task(pt):
+                    g_lat, g_lon = pt
+                    thread_db = SessionLocal()
+                    try:
+                        thread_pipeline = WeatherPipeline(thread_db, provider_name=self.provider_name)
+                        thread_pipeline._ingest_grid_point(g_lat, g_lon, latest_cycle_dt, provider)
+                    except Exception as e:
+                        logger.error(f"Failed to ingest grid point ({g_lat}, {g_lon}) in thread: {e}", exc_info=True)
+                        errors.append(e)
+                    finally:
+                        thread_db.close()
+                        
+                with ThreadPoolExecutor(max_workers=len(missing_points)) as executor:
+                    executor.map(ingest_task, missing_points)
+                    
+                if errors:
+                    first_err = errors[0]
                     # Fallback cycle check if downloads are disabled
                     if not provider.downloader.allow_on_the_fly_downloads and provider.downloader.use_local_storage:
                         logger.info("On-the-fly downloads are disabled. Looking for fallback cycle in database...")
@@ -490,8 +542,9 @@ class WeatherPipeline:
                                 forecasts_by_grid.setdefault(coord, []).append(f)
                             # Mark missing points resolved via fallback
                             missing_points = []
-                            break
-                    raise e
+                    
+                    if missing_points:
+                        raise first_err
                     
             # Re-query if we successfully ingested missing points
             if missing_points:

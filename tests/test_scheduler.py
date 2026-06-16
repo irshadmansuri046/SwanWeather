@@ -251,5 +251,34 @@ def test_scheduler_cleanup_stale_jobs(db_session):
     assert "timeout" in stale_job.error_message.lower() or "crashed" in stale_job.error_message.lower()
     assert fresh_job.status == "RUNNING"
 
+@pytest.mark.usefixtures("db_session")
+def test_scheduler_pre_populate_active_points(db_session):
+    scheduler = WeatherScheduler()
+    
+    # 1. Insert a unique grid point in WeatherForecast to act as a previously queried point
+    cycle_time = datetime(2026, 6, 16, 12, 0, tzinfo=timezone.utc)
+    old_cycle = datetime(2026, 6, 16, 6, 0, tzinfo=timezone.utc)
+    
+    forecast_old = WeatherForecast(
+        latitude=20.0, longitude=75.0, forecast_time=old_cycle, cycle_time=old_cycle,
+        temperature=25.0, feels_like=25.0, precipitation=0.0, humidity=60.0, pressure=1010.0,
+        cloud_cover=10.0, wind_speed=2.0, wind_direction=180.0, dew_point=16.0, uv_index=5.0,
+        visibility=10000.0, weather_code="CLEAR", provider="ecmwf"
+    )
+    db_session.add(forecast_old)
+    db_session.commit()
+    
+    # 2. Mock WeatherProvider
+    mock_provider = MagicMock()
+    mock_provider.name = "ecmwf"
+    
+    # We patch _ingest_grid_point of WeatherPipeline
+    with patch("backend.workers.pipeline.WeatherPipeline._ingest_grid_point") as mock_ingest:
+        scheduler._pre_populate_active_points(db_session, cycle_time, mock_provider)
+        
+        # Verify that _ingest_grid_point was triggered for the active point (20.0, 75.0)
+        mock_ingest.assert_any_call(20.0, 75.0, cycle_time, mock_provider)
+
+
 
 

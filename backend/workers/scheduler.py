@@ -141,11 +141,64 @@ class WeatherScheduler:
             db.commit()
             logger.info(f"[{provider.name.upper()}] Cycle {cycle_dt} successfully ingested.")
             
+            # Pre-populate active grid points in the background
+            try:
+                self._pre_populate_active_points(db, cycle_dt, provider)
+            except Exception as prep_err:
+                logger.error(f"[{provider.name.upper()}] Failed to pre-populate active grid points: {prep_err}", exc_info=True)
+            
         except Exception as e:
             logger.error(f"[{provider.name.upper()}] Failed to process cycle {cycle_dt}: {e}")
             job.status = "FAILED"
             job.error_message = str(e)
             db.commit()
+
+    def _pre_populate_active_points(self, db, cycle_dt: datetime, provider):
+        """Pre-populates the forecast tables for all unique grid points that were previously queried."""
+        # Find all unique grid points currently stored in the database
+        stmt = select(WeatherForecast.latitude, WeatherForecast.longitude).distinct()
+        active_points = db.execute(stmt).all()
+        
+        if not active_points:
+            logger.info(f"[{provider.name.upper()}] No active grid points found in database to pre-populate.")
+            return
+            
+        logger.info(f"[{provider.name.upper()}] Pre-populating {len(active_points)} active grid points for cycle {cycle_dt}...")
+        
+        is_sqlite = (db.bind.dialect.name == "sqlite") if db.bind else False
+        
+        if is_sqlite:
+            # Sequential ingestion for SQLite in tests/development
+            from backend.workers.pipeline import WeatherPipeline
+            pipeline = WeatherPipeline(db, provider_name=provider.name)
+            for pt in active_points:
+                lat, lon = float(pt[0]), float(pt[1])
+                try:
+                    pipeline._ingest_grid_point(lat, lon, cycle_dt, provider)
+                except Exception as e:
+                    logger.error(f"[{provider.name.upper()}] Failed to pre-populate grid point ({lat}, {lon}) in background: {e}")
+        else:
+            # Ingest concurrently on PostgreSQL/production
+            from concurrent.futures import ThreadPoolExecutor
+            from backend.workers.pipeline import WeatherPipeline
+            from backend.database.connection import SessionLocal
+            
+            def ingest_task(pt):
+                lat, lon = float(pt[0]), float(pt[1])
+                thread_db = SessionLocal()
+                try:
+                    pipeline = WeatherPipeline(thread_db, provider_name=provider.name)
+                    pipeline._ingest_grid_point(lat, lon, cycle_dt, provider)
+                except Exception as e:
+                    logger.error(f"[{provider.name.upper()}] Failed to pre-populate grid point ({lat}, {lon}) in background: {e}")
+                finally:
+                    thread_db.close()
+                    
+            # Limit concurrency to 4 threads to avoid database connection exhaustion
+            with ThreadPoolExecutor(max_workers=min(4, len(active_points))) as executor:
+                executor.map(ingest_task, active_points)
+            
+        logger.info(f"[{provider.name.upper()}] Finished pre-populating active grid points for cycle {cycle_dt}.")
 
     def _prune_stale_data(self, db):
         """Deletes database entries and physical files older than retention period."""
