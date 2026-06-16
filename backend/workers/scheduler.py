@@ -36,6 +36,15 @@ class WeatherScheduler:
 
     def run_once(self):
         """Runs a single iteration of the scheduler checks for all providers concurrently or sequentially."""
+        # Cleanup stale jobs first
+        db_cleanup = SessionLocal()
+        try:
+            self._cleanup_stale_jobs(db_cleanup)
+        except Exception as e:
+            logger.error(f"Error cleaning up stale jobs: {e}", exc_info=True)
+        finally:
+            db_cleanup.close()
+
         providers = [
             WeatherProviderFactory.get_provider("ecmwf"),
             WeatherProviderFactory.get_provider("imd")
@@ -87,6 +96,23 @@ class WeatherScheduler:
             logger.error(f"Error pruning stale data: {e}", exc_info=True)
         finally:
             db_prune.close()
+
+    def _cleanup_stale_jobs(self, db):
+        """Marks stuck RUNNING jobs (older than 15 minutes) as FAILED so they can be retried."""
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
+        stmt = select(WeatherJob).where(
+            and_(
+                WeatherJob.status == "RUNNING",
+                WeatherJob.created_at < cutoff
+            )
+        )
+        stale_jobs = db.execute(stmt).scalars().all()
+        for job in stale_jobs:
+            logger.info(f"Marking stale RUNNING job {job.id} for cycle {job.cycle_time} ({job.provider}) as FAILED (exceeded 15 min timeout).")
+            job.status = "FAILED"
+            job.error_message = "Job timed out or container crashed."
+        if stale_jobs:
+            db.commit()
 
     def _process_cycle(self, db, cycle_dt: datetime, provider):
         """Downloads and registers the raw file for the given cycle and provider."""

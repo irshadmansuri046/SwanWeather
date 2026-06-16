@@ -218,4 +218,38 @@ def test_scheduler_run_once_both_providers_concurrent(mock_factory, mock_downloa
     assert "ecmwf" in providers_in_db
     assert "imd" in providers_in_db
 
+@pytest.mark.usefixtures("db_session")
+def test_scheduler_cleanup_stale_jobs(db_session):
+    scheduler = WeatherScheduler()
+    
+    # 1. Create a stale RUNNING job (created 20 minutes ago)
+    stale_time = datetime.now(timezone.utc) - timedelta(minutes=20)
+    stale_job = WeatherJob(cycle_time=stale_time, status="RUNNING", provider="ecmwf")
+    db_session.add(stale_job)
+    db_session.commit()
+    
+    stale_job.created_at = stale_time
+    db_session.commit()
+    
+    # 2. Create a fresh RUNNING job (created 2 minutes ago)
+    fresh_time = datetime.now(timezone.utc) - timedelta(minutes=2)
+    fresh_job = WeatherJob(cycle_time=fresh_time, status="RUNNING", provider="ecmwf")
+    db_session.add(fresh_job)
+    db_session.commit()
+    
+    fresh_job.created_at = fresh_time
+    db_session.commit()
+    
+    # 3. Run cleanup
+    scheduler._cleanup_stale_jobs(db_session)
+    
+    db_session.refresh(stale_job)
+    db_session.refresh(fresh_job)
+    
+    # 4. Assertions
+    assert stale_job.status == "FAILED"
+    assert "timeout" in stale_job.error_message.lower() or "crashed" in stale_job.error_message.lower()
+    assert fresh_job.status == "RUNNING"
+
+
 
