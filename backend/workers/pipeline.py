@@ -1,15 +1,13 @@
 import os
 import logging
+import math
 from datetime import datetime, date, timedelta, timezone
 from typing import Dict, Any, List, Optional
-import numpy as np
-import pandas as pd
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_, delete
 
 from backend.database.models import WeatherJob, WeatherRawFile, WeatherForecast, WeatherDaily
 from backend.ingestion.downloader import ECMWFDownloader
-from backend.ingestion.parser import GRIBParser
 from backend.workers.transform import WeatherComputation
 from backend.workers import calculations
 from backend.workers.providers.factory import WeatherProviderFactory
@@ -96,17 +94,17 @@ class WeatherPipeline:
             w1_speed, w1_dir = v1["wind_speed"], v1["wind_direction"]
             w2_speed, w2_dir = v2["wind_speed"], v2["wind_direction"]
             
-            r1 = np.radians(w1_dir - 180)
-            u1, v_wind1 = w1_speed * np.sin(r1), w1_speed * np.cos(r1)
+            r1 = math.radians(w1_dir - 180)
+            u1, v_wind1 = w1_speed * math.sin(r1), w1_speed * math.cos(r1)
             
-            r2 = np.radians(w2_dir - 180)
-            u2, v_wind2 = w2_speed * np.sin(r2), w2_speed * np.cos(r2)
+            r2 = math.radians(w2_dir - 180)
+            u2, v_wind2 = w2_speed * math.sin(r2), w2_speed * math.cos(r2)
             
             u_interp = (1 - tx) * u1 + tx * u2
             v_interp = (1 - tx) * v_wind1 + tx * v_wind2
             
-            interpolated["wind_speed"] = float(np.sqrt(u_interp**2 + v_interp**2))
-            interpolated["wind_direction"] = float((np.degrees(np.arctan2(u_interp, v_interp)) + 180) % 360)
+            interpolated["wind_speed"] = float(math.sqrt(u_interp**2 + v_interp**2))
+            interpolated["wind_direction"] = float((math.degrees(math.atan2(u_interp, v_interp)) + 180) % 360)
             return interpolated
             
         if len(lons) == 1:
@@ -133,19 +131,19 @@ class WeatherPipeline:
             w1_speed, w1_dir = v1["wind_speed"], v1["wind_direction"]
             w2_speed, w2_dir = v2["wind_speed"], v2["wind_direction"]
             
-            r1 = np.radians(w1_dir - 180)
-            u1, v_wind1 = w1_speed * np.sin(r1), w1_speed * np.cos(r1)
+            r1 = math.radians(w1_dir - 180)
+            u1, v_wind1 = w1_speed * math.sin(r1), w1_speed * math.cos(r1)
             
-            r2 = np.radians(w2_dir - 180)
-            u2, v_wind2 = w2_speed * np.sin(r2), w2_speed * np.cos(r2)
+            r2 = math.radians(w2_dir - 180)
+            u2, v_wind2 = w2_speed * math.sin(r2), w2_speed * math.cos(r2)
             
             u_interp = (1 - ty) * u1 + ty * u2
             v_interp = (1 - ty) * v_wind1 + ty * v_wind2
             
-            interpolated["wind_speed"] = float(np.sqrt(u_interp**2 + v_interp**2))
-            interpolated["wind_direction"] = float((np.degrees(np.arctan2(u_interp, v_interp)) + 180) % 360)
+            interpolated["wind_speed"] = float(math.sqrt(u_interp**2 + v_interp**2))
+            interpolated["wind_direction"] = float((math.degrees(math.atan2(u_interp, v_interp)) + 180) % 360)
             return interpolated
-
+ 
         # Bilinear interpolation using 4 surrounding points
         lat1, lat2 = lats[0], lats[1]
         lon1, lon2 = lons[0], lons[1]
@@ -184,9 +182,9 @@ class WeatherPipeline:
         for p in [p11, p21, p12, p22]:
             speed = p["wind_speed"]
             direction = p["wind_direction"]
-            rad = np.radians(direction - 180)
-            u = speed * np.sin(rad)
-            v_wind = speed * np.cos(rad)
+            rad = math.radians(direction - 180)
+            u = speed * math.sin(rad)
+            v_wind = speed * math.cos(rad)
             uv_components.append((u, v_wind))
             
         u11, v11 = uv_components[0]
@@ -197,8 +195,8 @@ class WeatherPipeline:
         u_interp = (1 - tx) * (1 - ty) * u11 + tx * (1 - ty) * u21 + (1 - tx) * ty * u12 + tx * ty * u22
         v_interp = (1 - tx) * (1 - ty) * v11 + tx * (1 - ty) * v21 + (1 - tx) * ty * v12 + tx * ty * v22
         
-        interpolated["wind_speed"] = float(np.sqrt(u_interp**2 + v_interp**2))
-        interpolated["wind_direction"] = float((np.degrees(np.arctan2(u_interp, v_interp)) + 180) % 360)
+        interpolated["wind_speed"] = float(math.sqrt(u_interp**2 + v_interp**2))
+        interpolated["wind_direction"] = float((math.degrees(math.atan2(u_interp, v_interp)) + 180) % 360)
         
         return interpolated
 
@@ -355,7 +353,7 @@ class WeatherPipeline:
                 f_time = f_time.replace(tzinfo=timezone.utc)
             time_diffs.append(abs((f_time - now_utc).total_seconds()))
         if time_diffs:
-            min_idx = np.argmin(time_diffs)
+            min_idx = min(range(len(time_diffs)), key=time_diffs.__getitem__)
             current_pt = db_forecasts[min_idx]
         else:
             current_pt = db_forecasts[0]
@@ -411,10 +409,10 @@ class WeatherPipeline:
         and performs spatial bilinear interpolation in-memory.
         """
         # Determine surrounding grid points on 0.25-degree grid
-        lat_low = float(np.floor(lat * 4) / 4)
-        lat_high = float(np.ceil(lat * 4) / 4)
-        lon_low = float(np.floor(lon * 4) / 4)
-        lon_high = float(np.ceil(lon * 4) / 4)
+        lat_low = float(math.floor(lat * 4) / 4)
+        lat_high = float(math.ceil(lat * 4) / 4)
+        lon_low = float(math.floor(lon * 4) / 4)
+        lon_high = float(math.ceil(lon * 4) / 4)
         
         grid_points = sorted(list(set([
             (lat_low, lon_low),
@@ -572,17 +570,26 @@ class WeatherPipeline:
         """
         Aggregates hourly records into 10-day daily forecasts.
         """
-        df = pd.DataFrame(hourly_records)
-        df["date"] = df["forecast_time"].dt.date
-        
-        daily_groups = df.groupby("date")
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for rec in hourly_records:
+            dt = rec["forecast_time"]
+            f_date = dt.date() if hasattr(dt, "date") else dt
+            groups[f_date].append(rec)
+            
         daily_records = []
-        
-        for forecast_date, group in daily_groups:
+        for forecast_date in sorted(groups.keys()):
+            group = groups[forecast_date]
+            
             # Weather Code: Dominant condition based on severity hierarchy
             # E.g. If it rains, the daily weather code should be RAIN rather than CLEAR
-            codes = group["weather_code"].tolist()
+            codes = [rec["weather_code"] for rec in group]
             dominant_code = max(codes, key=lambda c: WEATHER_SEVERITY.get(c, 0))
+            
+            temperatures = [rec["temperature"] for rec in group]
+            precipitations = [rec["precipitation"] for rec in group]
+            humidities = [rec["humidity"] for rec in group]
+            wind_speeds = [rec["wind_speed"] for rec in group]
             
             daily_records.append({
                 "latitude": lat,
@@ -590,11 +597,11 @@ class WeatherPipeline:
                 "forecast_date": forecast_date,
                 "cycle_time": cycle_time,
                 "provider": self.provider_name,
-                "temp_min": float(group["temperature"].min()),
-                "temp_max": float(group["temperature"].max()),
-                "precipitation": float(group["precipitation"].sum()),
-                "humidity_avg": float(group["humidity"].mean()),
-                "wind_speed_max": float(group["wind_speed"].max()),
+                "temp_min": float(min(temperatures)),
+                "temp_max": float(max(temperatures)),
+                "precipitation": float(sum(precipitations)),
+                "humidity_avg": float(sum(humidities) / len(humidities)) if humidities else 0.0,
+                "wind_speed_max": float(max(wind_speeds)),
                 "weather_code": dominant_code
             })
             
@@ -628,7 +635,7 @@ class WeatherPipeline:
                 f_time = f_time.replace(tzinfo=timezone.utc)
             time_diffs.append(abs((f_time - now_utc).total_seconds()))
         if time_diffs:
-            min_idx = np.argmin(time_diffs)
+            min_idx = min(range(len(time_diffs)), key=time_diffs.__getitem__)
             current_pt = db_forecasts[min_idx]
         else:
             current_pt = db_forecasts[0]
@@ -729,10 +736,10 @@ class WeatherPipeline:
         """
         Retrieves forecast data (ensuring it is ingested) and builds the custom Meteomatics response.
         """
-        lat_low = float(np.floor(lat * 4) / 4)
-        lat_high = float(np.ceil(lat * 4) / 4)
-        lon_low = float(np.floor(lon * 4) / 4)
-        lon_high = float(np.ceil(lon * 4) / 4)
+        lat_low = float(math.floor(lat * 4) / 4)
+        lat_high = float(math.ceil(lat * 4) / 4)
+        lon_low = float(math.floor(lon * 4) / 4)
+        lon_high = float(math.ceil(lon * 4) / 4)
         
         grid_points = sorted(list(set([
             (lat_low, lon_low),

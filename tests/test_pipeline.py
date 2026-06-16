@@ -97,9 +97,9 @@ def test_pipeline_cache_miss_with_local_grib(db_session, mock_ecmwf_client):
     
     # 2. Mock GRIBParser and file presence
     with patch("backend.workers.pipeline.os.path.exists", return_value=True), \
-         patch("backend.workers.pipeline.GRIBParser.__init__", return_value=None), \
-         patch("backend.workers.pipeline.GRIBParser.close", return_value=None), \
-         patch("backend.workers.pipeline.GRIBParser.extract_point_data", return_value=mock_df):
+         patch("backend.ingestion.parser.GRIBParser.__init__", return_value=None), \
+         patch("backend.ingestion.parser.GRIBParser.close", return_value=None), \
+         patch("backend.ingestion.parser.GRIBParser.extract_point_data", return_value=mock_df):
          
         pipeline = WeatherPipeline(db_session)
         result = pipeline.get_or_create_forecast(lat, lon)

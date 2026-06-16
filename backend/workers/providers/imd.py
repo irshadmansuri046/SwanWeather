@@ -2,10 +2,12 @@ import os
 import shutil
 import logging
 from datetime import datetime, timezone, timedelta
-import pandas as pd
+from typing import TYPE_CHECKING
 from backend.workers.providers.base import BaseWeatherProvider
 from backend.ingestion.downloader import ECMWFDownloader
-from backend.ingestion.parser import GRIBParser
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +68,8 @@ class IMDProvider(BaseWeatherProvider):
 
         return target_path, checksum, file_size
 
-    def extract_and_interpolate(self, file_path: str, lat: float, lon: float) -> pd.DataFrame:
+    def extract_and_interpolate(self, file_path: str, lat: float, lon: float) -> "pd.DataFrame":
+        from backend.ingestion.parser import GRIBParser
         parser = GRIBParser(file_path)
         try:
             raw_df = parser.extract_point_data(lat, lon)

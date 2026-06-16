@@ -1,8 +1,10 @@
 from datetime import datetime, timezone, timedelta
-import pandas as pd
+from typing import TYPE_CHECKING
 from backend.workers.providers.base import BaseWeatherProvider
 from backend.ingestion.downloader import ECMWFDownloader
-from backend.ingestion.parser import GRIBParser
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 class ECMWFProvider(BaseWeatherProvider):
     """
@@ -24,7 +26,8 @@ class ECMWFProvider(BaseWeatherProvider):
     def download_cycle(self, cycle_dt: datetime) -> tuple[str, str, int]:
         return self.downloader.download_cycle(cycle_dt.date(), cycle_dt.hour)
 
-    def extract_and_interpolate(self, file_path: str, lat: float, lon: float) -> pd.DataFrame:
+    def extract_and_interpolate(self, file_path: str, lat: float, lon: float) -> "pd.DataFrame":
+        from backend.ingestion.parser import GRIBParser
         parser = GRIBParser(file_path)
         try:
             raw_df = parser.extract_point_data(lat, lon)

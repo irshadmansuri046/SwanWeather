@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-import pandas as pd
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 class BaseWeatherProvider(ABC):
     """
@@ -31,7 +34,7 @@ class BaseWeatherProvider(ABC):
         pass
 
     @abstractmethod
-    def extract_and_interpolate(self, file_path: str, lat: float, lon: float) -> pd.DataFrame:
+    def extract_and_interpolate(self, file_path: str, lat: float, lon: float) -> "pd.DataFrame":
         """
         Extracts grid point values and interpolates them to hourly step records.
         Returns:

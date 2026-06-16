@@ -1,6 +1,5 @@
 import logging
-import numpy as np
-import pandas as pd
+import math
 from datetime import datetime, date
 from typing import Dict, Any, List
 
@@ -44,7 +43,7 @@ class WeatherComputation:
                 
                 # Adjustments
                 if rh < 13 and (tf >= 80 and tf <= 112):
-                    adj = ((13 - rh) / 4) * np.sqrt((17 - np.abs(tf - 95.0)) / 17)
+                    adj = ((13 - rh) / 4) * math.sqrt((17 - abs(tf - 95.0)) / 17)
                     hi_f -= adj
                 elif rh > 85 and (tf >= 80 and tf <= 87):
                     adj = ((rh - 85) / 10) * ((87 - tf) / 5)
@@ -68,27 +67,27 @@ class WeatherComputation:
         
         # Solar declination angle (approximate)
         # delta = 23.45 * sin(360/365 * (284 + day_of_year))
-        delta = np.radians(23.45 * np.sin(np.radians(360.0 / 365.0 * (284 + day_of_year))))
+        delta = math.radians(23.45 * math.sin(math.radians(360.0 / 365.0 * (284 + day_of_year))))
         
         # Hour angle (approximate local solar time)
         # Solar time approx = UTC hour + longitude / 15
         local_solar_hour = dt.hour + dt.minute / 60.0 + (lon / 15.0)
         # Hour angle H: 15 degrees per hour relative to solar noon
-        hour_angle = np.radians(15.0 * (local_solar_hour - 12.0))
+        hour_angle = math.radians(15.0 * (local_solar_hour - 12.0))
         
-        lat_rad = np.radians(lat)
+        lat_rad = math.radians(lat)
         
         # Cosine of Solar Zenith Angle (cos_sza)
         # cos(SZA) = sin(lat)*sin(delta) + cos(lat)*cos(delta)*cos(hour_angle)
-        cos_sza = (np.sin(lat_rad) * np.sin(delta) + 
-                   np.cos(lat_rad) * np.cos(delta) * np.cos(hour_angle))
+        cos_sza = (math.sin(lat_rad) * math.sin(delta) + 
+                   math.cos(lat_rad) * math.cos(delta) * math.cos(hour_angle))
         
         if cos_sza <= 0:
             # Sun is below the horizon
             return 0.0
             
         # SZA in degrees
-        sza = np.degrees(np.arccos(cos_sza))
+        sza = math.degrees(math.acos(cos_sza))
         
         # Clear-sky UV Index estimation:
         # standard formula: UVI_clear = 12.5 * (cos(SZA))^1.25
@@ -102,7 +101,7 @@ class WeatherComputation:
         uvi = uvi_clear * attenuation
         
         # Cap UV Index between 0 and 15
-        return float(np.clip(uvi, 0.0, 15.0))
+        return float(max(0.0, min(uvi, 15.0)))
 
     @staticmethod
     def get_weather_code(temp: float, precip: float, cloud_cover: float, visibility_m: float, wind_speed: float) -> str:
@@ -112,13 +111,13 @@ class WeatherComputation:
         """
         # 1. Check precipitation
         if precip > 0.1:  # Non-trivial precipitation
-            if temp <= 0.0:
-                return "SNOW"
-            elif precip > 3.0:  # Heavy precipitation
-                return "THUNDER"  # Approximate convection/heavy rain as THUNDER
-            else:
-                return "RAIN"
-                
+          if temp <= 0.0:
+              return "SNOW"
+          elif precip > 3.0:  # Heavy precipitation
+              return "THUNDER"  # Approximate convection/heavy rain as THUNDER
+          else:
+              return "RAIN"
+              
         # 2. Check visibility for FOG
         if visibility_m < 1000.0:  # Under 1km visibility
             return "FOG"
@@ -148,5 +147,5 @@ class WeatherComputation:
         term_dp = (17.625 * dp) / (243.04 + dp)
         term_temp = (17.625 * temp) / (243.04 + temp)
         
-        rh = 100.0 * (np.exp(term_dp) / np.exp(term_temp))
-        return float(np.clip(rh, 0.0, 100.0))
+        rh = 100.0 * (math.exp(term_dp) / math.exp(term_temp))
+        return float(max(0.0, min(rh, 100.0)))

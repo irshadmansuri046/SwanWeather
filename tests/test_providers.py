@@ -87,7 +87,7 @@ def test_imd_provider_download(mock_getsize, mock_exists, mock_shutil, mock_down
     # Verify copy was invoked
     mock_shutil.copy2.assert_called_with("/data/raw_grib/ecmwf_20260609_12utc.nc", "/data/raw_grib/imd_20260609_12utc.nc")
 
-@patch("backend.workers.providers.imd.GRIBParser")
+@patch("backend.ingestion.parser.GRIBParser")
 def test_imd_provider_extract_and_interpolate(mock_parser_class):
     mock_parser = MagicMock()
     mock_parser_class.return_value = mock_parser
